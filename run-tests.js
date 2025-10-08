@@ -5,21 +5,22 @@ const path = require('path');
 const fs = require('fs');
 const { exec } = require('child_process');
 
+// Config
 const COLLECTION_UID = process.env.COLLECTION_UID;
 const API_KEY = process.env.POSTMAN_API_KEY;
-const SURGE_LOGIN = process.env.SURGE_LOGIN;
-const SURGE_PASSWORD = process.env.SURGE_PASSWORD; 
-
-const SURGE_URL = 'kwant-api-automation.surge.sh';
+const SURGE_TOKEN = process.env.SURGE_TOKEN;
+const SURGE_URL = 'kwant-automation-dashboard.surge.sh';
 
 const ALLURE_RESULTS_DIR = path.join(__dirname, 'allure-results');
 const ALLURE_REPORT_DIR = path.join(__dirname, 'allure-report');
-const HISTORY_DIR = path.join(__dirname, '.history');
+const HISTORY_DIR = path.join(__dirname, '.history'); // store last 3 runs
 
+// Ensure directories exist
 [ALLURE_RESULTS_DIR, HISTORY_DIR].forEach(dir => {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
+// Clean allure-results except history folder
 function cleanAllureResults() {
     if (fs.existsSync(ALLURE_RESULTS_DIR)) {
         fs.readdirSync(ALLURE_RESULTS_DIR).forEach(file => {
@@ -31,6 +32,7 @@ function cleanAllureResults() {
     }
 }
 
+// Add executor info
 function addExecutorInfo() {
     const content = `
 executor.name=ParasOli
@@ -41,27 +43,23 @@ executor.url=http://localhost
     fs.writeFileSync(path.join(ALLURE_RESULTS_DIR, 'executor.properties'), content);
 }
 
+// Add environment info
 function addEnvironmentInfo() {
     const content = `
-POSTMAN_ENV=UAT
-API_URL=https://uat.example.com
+POSTMAN_ENV=dev
+API_URL=https://api.example.com
 `.trim();
     fs.writeFileSync(path.join(ALLURE_RESULTS_DIR, 'environment.properties'), content);
 }
 
+// Fetch Postman collection
 async function getCollection() {
-    try {
-        const url = `https://api.getpostman.com/collections/${COLLECTION_UID}`;
-        const res = await axios.get(url, { headers: { 'X-Api-Key': API_KEY } });
-        console.log('✅ Collection fetched successfully from Postman Cloud');
-        return res.data.collection;
-    } catch (err) {
-        console.error('❌ Failed to fetch Postman collection:', err.message);
-        process.exit(1);
-    }
+    const url = `https://api.getpostman.com/collections/${COLLECTION_UID}`;
+    const res = await axios.get(url, { headers: { 'X-Api-Key': API_KEY } });
+    return res.data.collection;
 }
 
-// ♻️ Merge last 3 runs into allure-results/history
+// Merge last 3 runs into allure-results/history
 function mergeHistory() {
     const targetHistory = path.join(ALLURE_RESULTS_DIR, 'history');
 
@@ -70,16 +68,16 @@ function mergeHistory() {
 
     const folders = fs.readdirSync(HISTORY_DIR)
         .map(name => ({ name, time: fs.statSync(path.join(HISTORY_DIR, name)).mtime.getTime() }))
-        .sort((a, b) => b.time - a.time)
-        .slice(0, 3)
-        .reverse();
+        .sort((a, b) => b.time - a.time) // newest first
+        .slice(0, 3) // last 3 runs
+        .reverse(); // oldest first
 
     folders.forEach(folder => {
         const src = path.join(HISTORY_DIR, folder.name);
         if (fs.existsSync(src)) {
             fs.readdirSync(src).forEach(file => {
                 const srcFile = path.join(src, file);
-                const destFile = path.join(targetHistory, `${folder.name}-${file}`);
+                const destFile = path.join(targetHistory, `${folder.name}-${file}`); // unique name
                 fs.copyFileSync(srcFile, destFile);
             });
         }
@@ -88,7 +86,7 @@ function mergeHistory() {
     console.log('📂 Merged last 3 runs into allure-results/history');
 }
 
-// 🧭 Generate Allure HTML report
+// Generate Allure HTML report
 function generateAllureReport() {
     mergeHistory();
     return new Promise((resolve, reject) => {
@@ -101,6 +99,7 @@ function generateAllureReport() {
     });
 }
 
+// Save current run to .history and prune older than 3
 function saveCurrentRunHistory() {
     const reportHistory = path.join(ALLURE_REPORT_DIR, 'history');
     if (!fs.existsSync(reportHistory)) return;
@@ -116,6 +115,7 @@ function saveCurrentRunHistory() {
 
     console.log(`📂 Saved current run's history to ${runFolder}`);
 
+    // Keep only last 3 runs
     const folders = fs.readdirSync(HISTORY_DIR)
         .map(name => ({ name, time: fs.statSync(path.join(HISTORY_DIR, name)).mtime.getTime() }))
         .sort((a, b) => b.time - a.time);
@@ -126,28 +126,22 @@ function saveCurrentRunHistory() {
     }
 }
 
+// Deploy to Surge using token
 function deployToSurge() {
     return new Promise((resolve, reject) => {
-        if (!SURGE_LOGIN || !SURGE_PASSWORD) {
-            console.error('❌ Missing SURGE_LOGIN or SURGE_PASSWORD in .env');
-            process.exit(1);
-        }
-
-        const cmd = `surge ./allure-report ${SURGE_URL} --login ${SURGE_LOGIN} --password ${SURGE_PASSWORD}`;
+        const cmd = `surge ./allure-report https://${SURGE_URL} --token ${SURGE_TOKEN}`;
         exec(cmd, (err, stdout, stderr) => {
-            if (err) {
-                console.error(stderr);
-                return reject(err);
-            }
+            if (err) return reject(err);
             console.log(`🌐 Allure report deployed to Surge: https://${SURGE_URL}`);
             resolve();
         });
     });
 }
 
+// Run Newman tests
 async function runTests() {
-    if (!COLLECTION_UID || !API_KEY) {
-        console.error('❌ Missing COLLECTION_UID or POSTMAN_API_KEY in .env');
+    if (!COLLECTION_UID || !API_KEY || !SURGE_TOKEN) {
+        console.error('❌ Missing COLLECTION_UID, POSTMAN_API_KEY or SURGE_TOKEN in .env');
         process.exit(1);
     }
 
@@ -166,14 +160,14 @@ async function runTests() {
         if (err) return console.error('❌ Newman run failed:', err);
 
         console.log('✅ Newman tests completed!');
-        console.log(`📊 Total requests: ${summary.run.stats.requests.total}`);
-        console.log(`❌ Failed requests: ${summary.run.stats.requests.failed}`);
-        console.log(`🚨 Failed assertions: ${summary.run.stats.assertions.failed}`);
+        console.log(`Total requests: ${summary.run.stats.requests.total}`);
+        console.log(`Failed requests: ${summary.run.stats.requests.failed}`);
+        console.log(`Failed assertions: ${summary.run.stats.assertions.failed}`);
 
         try {
-            await generateAllureReport();
-            saveCurrentRunHistory();
-            await deployToSurge();
+            await generateAllureReport();  // merge trend
+            saveCurrentRunHistory();       // save current run
+            await deployToSurge();         // deploy online via token
         } catch (err) {
             console.error('❌ Could not generate/deploy Allure report:', err.message);
         }
