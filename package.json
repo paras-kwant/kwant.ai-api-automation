@@ -5,11 +5,19 @@
   "main": "run-tests.js",
   "scripts": {
     "test": "node run-tests.js",
-    "allure:generate": "allure generate reports/allure-results --clean -o reports/allure-report",
-    "allure:open": "allure open reports/allure-report",
-    "deploy:surge": "surge reports/allure-report kwant-automation-dashboard.surge.sh",
-    "report": "npm run test && npm run allure:generate && npm run deploy:surge"
+    "upload": "allurectl upload ./reports/allure-results --endpoint https://projectx.testops.cloud --token a7477296-cf14-4413-ac49-44320308507a --project-id 1",
+    "report": "npm run test && npm run upload"
   },
+  "keywords": [
+    "newman",
+    "postman",
+    "allure",
+    "testops",
+    "automation",
+    "api-testing"
+  ],
+  "author": "",
+  "license": "MIT",
   "dependencies": {
     "axios": "^1.12.2",
     "chalk": "^4.1.2",

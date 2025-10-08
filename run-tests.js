@@ -1,117 +1,177 @@
 require('dotenv').config();
 const newman = require('newman');
-const fs = require('fs');
-const path = require('path');
-const chalk = require('chalk');
 const axios = require('axios');
-const { execSync } = require('child_process');
-const moment = require('moment-timezone');
+const path = require('path');
+const fs = require('fs');
+const { exec } = require('child_process');
 
-const reportsDir = path.join(__dirname, 'reports');
-const allureResultsDir = path.join(reportsDir, 'allure-results');
-const historyDir = path.join(allureResultsDir, 'history');
+// Config
+const COLLECTION_UID = process.env.COLLECTION_UID;
+const API_KEY = process.env.POSTMAN_API_KEY;
+
+const ALLURE_RESULTS_DIR = path.join(__dirname, 'allure-results');
+const ALLURE_REPORT_DIR = path.join(__dirname, 'allure-report');
+const HISTORY_DIR = path.join(__dirname, '.history'); // store last 3 runs
+const SURGE_URL = 'kwant-automation-dashboard.surge.sh';
 
 // Ensure directories exist
-if (!fs.existsSync(reportsDir)) fs.mkdirSync(reportsDir, { recursive: true });
-if (!fs.existsSync(allureResultsDir)) fs.mkdirSync(allureResultsDir, { recursive: true });
-if (!fs.existsSync(historyDir)) fs.mkdirSync(historyDir, { recursive: true });
-
-// 🧹 Step 1: Clear old Allure results (preserve history)
-console.log(chalk.blue('🗑️ Clearing old Allure results...'));
-fs.readdirSync(allureResultsDir).forEach(file => {
-  const filePath = path.join(allureResultsDir, file);
-  if (file !== 'history') {
-    fs.rmSync(filePath, { recursive: true, force: true });
-  }
+[ALLURE_RESULTS_DIR, HISTORY_DIR].forEach(dir => {
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
-console.log(chalk.green('✅ Cleared old Allure results, preserved history.'));
 
-// 🧹 Step 2: Delete older history folders if more than 5
-function cleanOldHistory() {
-  const runFolders = fs.readdirSync(historyDir)
-    .filter(name => name.startsWith('run-'))
-    .map(name => ({
-      name,
-      time: fs.statSync(path.join(historyDir, name)).mtime.getTime()
-    }))
-    .sort((a, b) => b.time - a.time); // newest first
-
-  if (runFolders.length > 5) {
-    const oldFolders = runFolders.slice(5); // keep only 5 latest
-    oldFolders.forEach(folder => {
-      const folderPath = path.join(historyDir, folder.name);
-      fs.rmSync(folderPath, { recursive: true, force: true });
-      console.log(chalk.yellow(`🧹 Deleted old run folder: ${folder.name}`));
-    });
-  }
+// Clean allure-results except history folder
+function cleanAllureResults() {
+    if (fs.existsSync(ALLURE_RESULTS_DIR)) {
+        fs.readdirSync(ALLURE_RESULTS_DIR).forEach(file => {
+            if (file !== 'history') {
+                fs.rmSync(path.join(ALLURE_RESULTS_DIR, file), { recursive: true, force: true });
+            }
+        });
+        console.log('🧹 Cleared previous allure-results (trend preserved)');
+    }
 }
 
-cleanOldHistory();
-
-// 🧭 Step 3: Backup history temporarily
-const tempHistoryDir = path.join(reportsDir, `temp-history-${Date.now()}`);
-if (fs.existsSync(historyDir)) {
-  fs.mkdirSync(tempHistoryDir);
-  fs.readdirSync(historyDir).forEach(file => {
-    fs.copyFileSync(path.join(historyDir, file), path.join(tempHistoryDir, file));
-  });
+// Add executor info
+function addExecutorInfo() {
+    const content = `
+executor.name=ParasOli
+executor.type=CLI
+executor.build=1
+executor.url=http://localhost
+`.trim();
+    fs.writeFileSync(path.join(ALLURE_RESULTS_DIR, 'executor.properties'), content);
 }
 
-// 🌐 Step 4: Fetch Postman Collection
+// Add environment info
+function addEnvironmentInfo() {
+    const content = `
+POSTMAN_ENV=dev
+API_URL=https://api.example.com
+`.trim();
+    fs.writeFileSync(path.join(ALLURE_RESULTS_DIR, 'environment.properties'), content);
+}
+
+// Fetch Postman collection
 async function getCollection() {
-  try {
-    const response = await axios.get(`https://api.getpostman.com/collections/${process.env.COLLECTION_UID}`, {
-      headers: { 'X-Api-Key': process.env.POSTMAN_API_KEY }
-    });
-    return response.data.collection;
-  } catch (err) {
-    console.error(chalk.red('❌ Error fetching collection from Postman:'), err.message);
-    process.exit(1);
-  }
+    const url = `https://api.getpostman.com/collections/${COLLECTION_UID}`;
+    const res = await axios.get(url, { headers: { 'X-Api-Key': API_KEY } });
+    return res.data.collection;
 }
 
-// 🚀 Step 5: Run Newman + Allure
-async function runNewman() {
-  const collection = await getCollection();
+// Merge last 3 runs into allure-results/history
+function mergeHistory() {
+    const targetHistory = path.join(ALLURE_RESULTS_DIR, 'history');
 
-  console.log(chalk.blue('🚀 Starting Newman API tests...'));
-  newman.run({
-    collection: collection,
-    reporters: ['cli', 'allure'],
-    reporter: {
-      allure: { export: allureResultsDir }
-    }
-  }, function (err, summary) {
-    if (err) {
-      console.error(chalk.red('❌ Error during automation:'), err);
-      process.exit(1);
-    }
-    console.log(chalk.green('✅ Newman run completed!'));
+    if (fs.existsSync(targetHistory)) fs.rmSync(targetHistory, { recursive: true, force: true });
+    fs.mkdirSync(targetHistory, { recursive: true });
 
-    // Restore history backup
-    fs.readdirSync(tempHistoryDir).forEach(file => {
-      fs.copyFileSync(path.join(tempHistoryDir, file), path.join(historyDir, file));
+    const folders = fs.readdirSync(HISTORY_DIR)
+        .map(name => ({ name, time: fs.statSync(path.join(HISTORY_DIR, name)).mtime.getTime() }))
+        .sort((a, b) => b.time - a.time) // newest first
+        .slice(0, 3) // last 3 runs
+        .reverse(); // oldest first
+
+    folders.forEach(folder => {
+        const src = path.join(HISTORY_DIR, folder.name);
+        if (fs.existsSync(src)) {
+            fs.readdirSync(src).forEach(file => {
+                const srcFile = path.join(src, file);
+                const destFile = path.join(targetHistory, `${folder.name}-${file}`); // unique name
+                fs.copyFileSync(srcFile, destFile);
+            });
+        }
     });
-    fs.rmSync(tempHistoryDir, { recursive: true, force: true });
 
-    // Remove comparison/trend data
-    const categoriesFile = path.join(allureResultsDir, 'categories.json');
-    if (fs.existsSync(categoriesFile)) fs.unlinkSync(categoriesFile);
-
-    // Generate & Deploy
-    try {
-      console.log(chalk.blue('📊 Generating Allure report...'));
-      execSync(`allure generate ${allureResultsDir} --clean -o ${reportsDir}/allure-report`);
-      console.log(chalk.green('✅ Allure report generated!'));
-
-      console.log(chalk.blue('☁️ Deploying report to Surge...'));
-      execSync(`surge ${reportsDir}/allure-report kwant-automation-dashboard.surge.sh`);
-      console.log(chalk.green('✅ Report deployed successfully!'));
-    } catch (error) {
-      console.error(chalk.red('❌ Error during report generation or deployment:'), error.message);
-    }
-  });
+    console.log('📂 Merged last 3 runs into allure-results/history');
 }
 
-// 🏁 Run
-runNewman();
+// Generate Allure HTML report
+function generateAllureReport() {
+    mergeHistory();
+    return new Promise((resolve, reject) => {
+        const cmd = `allure generate ${ALLURE_RESULTS_DIR} -o ${ALLURE_REPORT_DIR} --clean`;
+        exec(cmd, err => {
+            if (err) return reject(err);
+            console.log('✅ Allure HTML report generated!');
+            resolve();
+        });
+    });
+}
+
+// Save current run to .history and prune older than 3
+function saveCurrentRunHistory() {
+    const reportHistory = path.join(ALLURE_REPORT_DIR, 'history');
+    if (!fs.existsSync(reportHistory)) return;
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const runFolder = path.join(HISTORY_DIR, timestamp);
+    fs.mkdirSync(runFolder, { recursive: true });
+
+    fs.readdirSync(reportHistory).forEach(file => {
+        const srcFile = path.join(reportHistory, file);
+        fs.copyFileSync(srcFile, path.join(runFolder, file));
+    });
+
+    console.log(`📂 Saved current run's history to ${runFolder}`);
+
+    // Keep only last 3 runs
+    const folders = fs.readdirSync(HISTORY_DIR)
+        .map(name => ({ name, time: fs.statSync(path.join(HISTORY_DIR, name)).mtime.getTime() }))
+        .sort((a, b) => b.time - a.time);
+
+    for (let i = 3; i < folders.length; i++) {
+        fs.rmSync(path.join(HISTORY_DIR, folders[i].name), { recursive: true, force: true });
+        console.log(`🗑️ Deleted old history: ${folders[i].name}`);
+    }
+}
+
+// Deploy to Surge
+function deployToSurge() {
+    return new Promise((resolve, reject) => {
+        exec(`surge ./allure-report ${SURGE_URL}`, (err, stdout, stderr) => {
+            if (err) return reject(err);
+            console.log(`🌐 Allure report deployed to Surge: https://${SURGE_URL}`);
+            resolve();
+        });
+    });
+}
+
+// Run Newman tests
+async function runTests() {
+    if (!COLLECTION_UID || !API_KEY) {
+        console.error('❌ Missing COLLECTION_UID or POSTMAN_API_KEY in .env');
+        process.exit(1);
+    }
+
+    cleanAllureResults();
+    addExecutorInfo();
+    addEnvironmentInfo();
+
+    const collection = await getCollection();
+
+    newman.run({
+        collection,
+        reporters: ['cli', 'allure'],
+        reporter: { allure: { export: ALLURE_RESULTS_DIR } },
+        iterationCount: 1
+    }, async (err, summary) => {
+        if (err) return console.error('❌ Newman run failed:', err);
+
+        console.log('✅ Newman tests completed!');
+        console.log(`Total requests: ${summary.run.stats.requests.total}`);
+        console.log(`Failed requests: ${summary.run.stats.requests.failed}`);
+        console.log(`Failed assertions: ${summary.run.stats.assertions.failed}`);
+
+        try {
+            await generateAllureReport();  // merge trend
+            saveCurrentRunHistory();       // save current run
+            await deployToSurge();         // deploy online
+        } catch (err) {
+            console.error('❌ Could not generate/deploy Allure report:', err.message);
+        }
+
+        process.exit(summary.run.stats.assertions.failed > 0 ? 1 : 0);
+    });
+}
+
+runTests();
