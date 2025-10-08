@@ -13,7 +13,7 @@ jobs:
       POSTMAN_API_KEY: ${{ secrets.POSTMAN_API_KEY }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       SURGE_LOGIN: ${{ secrets.SURGE_LOGIN }}
-      SURGE_TOKEN: ${{ secrets.SURGE_TOKEN }}
+      SURGE_PASSWORD: ${{ secrets.SURGE_PASSWORD }}
 
     steps:
       - name: 🛒 Checkout Repository
@@ -33,7 +33,6 @@ jobs:
         run: |
           npm run test | tee newman_output.txt
 
-          # Extract stats from output
           TOTAL=$(grep -o "Total requests: [0-9]*" newman_output.txt | awk '{print $3}' || echo 0)
           FAILED=$(grep -o "Failed assertions: [0-9]*" newman_output.txt | awk '{print $3}' || echo 0)
           PASSED=$((TOTAL - FAILED))
@@ -59,9 +58,8 @@ jobs:
         if: always()
         run: |
           npm install --global surge
-          surge ./allure-report https://kwant-automation-dashboard.surge.sh \
-            --token $SURGE_TOKEN \
-            --login $SURGE_LOGIN
+          echo $SURGE_PASSWORD | surge login --email $SURGE_LOGIN --password-stdin
+          surge ./allure-report https://kwant-automation-dashboard.surge.sh --project ./allure-report
 
       - name: 💬 Send Slack Notification
         if: always()
@@ -110,6 +108,4 @@ jobs:
             ]
           }"
 
-          curl -X POST -H 'Content-type: application/json' \
-          --data "$PAYLOAD" \
-          $SLACK_WEBHOOK_URL
+          curl -X POST -H 'Content-type: application/json' --data "$PAYLOAD" $SLACK_WEBHOOK_URL
