@@ -69,20 +69,22 @@ jobs:
           SKIPPED="${{ steps.newman.outputs.skipped }}"
           SUCCESS_RATE="${{ steps.newman.outputs.success_rate }}"
           TOTAL_TIME="${{ steps.newman.outputs.total_time }}"
-          TIMESTAMP="${{ steps.newman.outputs.timestamp }}"
+          TIMESTAMP_UTC="${{ steps.newman.outputs.timestamp }}"
+
+          # Convert UTC to Nepal Time (UTC + 5:45)
+          TIMESTAMP_NPT=$(date -d "$TIMESTAMP_UTC +5 hours 45 minutes" '+%Y-%m-%d %I:%M:%S %p NPT')
 
           if [[ "$FAILED" -eq 0 && "$TOTAL" -gt 0 ]]; then
             STATUS="✅ API tests completed successfully"
-            COLOR="good"
+            COLOR="#36a64f"
           elif [[ "$TOTAL" -eq 0 ]]; then
-            STATUS="⚠️ API tests tests did not run properly"
-            COLOR="warning"
+            STATUS="⚠️ API tests did not run properly"
+            COLOR="#FFA500"
           else
             STATUS="🚨 API tests failed"
-            COLOR="danger"
+            COLOR="#FF0000"
           fi
 
-          # Create JSON payload using jq for proper escaping
           PAYLOAD=$(jq -n \
             --arg color "$COLOR" \
             --arg status "$STATUS" \
@@ -92,24 +94,16 @@ jobs:
             --arg skipped "$SKIPPED" \
             --arg success_rate "$SUCCESS_RATE%" \
             --arg total_time "$TOTAL_TIME" \
-            --arg timestamp "$TIMESTAMP" \
+            --arg timestamp "$TIMESTAMP_NPT" \
             '{
               attachments: [
                 {
                   color: $color,
                   title: $status,
-                  fields: [
-                    {title: "Total Tests", value: $total, short: true},
-                    {title: "✅ Passed", value: $passed, short: true},
-                    {title: "❌ Failed", value: $failed, short: true},
-                    {title: "⏭️ Skipped", value: $skipped, short: true},
-                    {title: "📈 Success Rate", value: $success_rate, short: true},
-                    {title: "⏳ Total Time", value: $total_time, short: true},
-                    {title: "🕐 Last Checked", value: $timestamp, short: false}
-                  ],
+                  mrkdwn_in: ["text"],
+                  text: "*📊 Test Summary:*\n\n*🧪 Total Tests:* \($total)\n*✅ Passed:* \($passed)\n*❌ Failed:* \($failed)\n*⏭️ Skipped:* \($skipped)\n\n*📈 Success Rate:* \($success_rate)\n*⏳ Total Time:* \($total_time)\n*🕒 Last Checked:* \($timestamp)",
                   actions: [
                     {
-                    
                       type: "button",
                       text: "View Detailed Report",
                       url: "https://kwant-automation-dashboard.surge.sh/"
