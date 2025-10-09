@@ -72,13 +72,13 @@ jobs:
           TIMESTAMP="${{ steps.newman.outputs.timestamp }}"
 
           if [[ "$FAILED" -eq 0 && "$TOTAL" -gt 0 ]]; then
-            STATUS="✅ PROD Health Check tests completed successfully"
+            STATUS="✅ API tests completed successfully"
             COLOR="good"
           elif [[ "$TOTAL" -eq 0 ]]; then
-            STATUS="⚠️ PROD Health Check tests did not run properly"
+            STATUS="⚠️ API tests tests did not run properly"
             COLOR="warning"
           else
-            STATUS="🚨 PROD Health Check tests failed"
+            STATUS="🚨 API tests failed"
             COLOR="danger"
           fi
 
@@ -109,6 +109,7 @@ jobs:
                   ],
                   actions: [
                     {
+                    
                       type: "button",
                       text: "View Detailed Report",
                       url: "https://kwant-automation-dashboard.surge.sh/"
