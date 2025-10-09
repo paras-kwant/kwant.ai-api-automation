@@ -60,9 +60,9 @@ jobs:
           npm install --global surge
           surge ./allure-report https://kwant-automation-dashboard.surge.sh --token $SURGE_TOKEN
 
-            - name: 💬 Send Minimalist Slack Notification
-           if: always()
-           run: |
+      - name: 💬 Send Slack Notification
+        if: always()
+        run: |
           TOTAL="${{ steps.newman.outputs.total }}"
           PASSED="${{ steps.newman.outputs.passed }}"
           FAILED="${{ steps.newman.outputs.failed }}"
@@ -72,33 +72,45 @@ jobs:
           TIMESTAMP="${{ steps.newman.outputs.timestamp }}"
 
           if [[ "$FAILED" -eq 0 && "$TOTAL" -gt 0 ]]; then
-            STATUS="✅ All Tests Passed"
+            STATUS="✅ API tests completed successfully"
             COLOR="good"
           elif [[ "$TOTAL" -eq 0 ]]; then
-            STATUS="⚠️ Tests Not Executed"
+            STATUS="⚠️ API tests tests did not run properly"
             COLOR="warning"
           else
-            STATUS="🚨 Tests Failed"
+            STATUS="🚨 PROD Health Check tests failed"
             COLOR="danger"
           fi
 
-          # Minimalist, informative JSON payload
+          # Create JSON payload using jq for proper escaping
           PAYLOAD=$(jq -n \
             --arg color "$COLOR" \
             --arg status "$STATUS" \
-            --arg summary "Passed $PASSED / Total $TOTAL | Failed $FAILED | Skipped $SKIPPED | Success: $SUCCESS_RATE% | Duration: $TOTAL_TIME" \
+            --arg total "$TOTAL" \
+            --arg passed "$PASSED" \
+            --arg failed "$FAILED" \
+            --arg skipped "$SKIPPED" \
+            --arg success_rate "$SUCCESS_RATE%" \
+            --arg total_time "$TOTAL_TIME" \
             --arg timestamp "$TIMESTAMP" \
             '{
               attachments: [
                 {
                   color: $color,
                   title: $status,
-                  text: $summary,
-                  footer: "Last Run: \($timestamp)",
+                  fields: [
+                    {title: "Total Tests", value: $total, short: true},
+                    {title: "✅ Passed", value: $passed, short: true},
+                    {title: "❌ Failed", value: $failed, short: true},
+                    {title: "⏭️ Skipped", value: $skipped, short: true},
+                    {title: "📈 Success Rate", value: $success_rate, short: true},
+                    {title: "⏳ Total Time", value: $total_time, short: true},
+                    {title: "🕐 Last Checked", value: $timestamp, short: false}
+                  ],
                   actions: [
                     {
                       type: "button",
-                      text: "View Full Report",
+                      text: "View Detailed Report",
                       url: "https://kwant-automation-dashboard.surge.sh/"
                     }
                   ]
