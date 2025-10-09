@@ -32,7 +32,6 @@ jobs:
         run: |
           npm run test | tee newman_output.txt
 
-          # Extract stats from output
           TOTAL=$(grep -o "Total requests: [0-9]*" newman_output.txt | awk '{print $3}' || echo 0)
           FAILED=$(grep -o "Failed assertions: [0-9]*" newman_output.txt | awk '{print $3}' || echo 0)
           PASSED=$((TOTAL - FAILED))
@@ -57,12 +56,11 @@ jobs:
       - name: 🌍 Deploy Allure Report to Surge
         if: always()
         run: |
-          npm install --global surge
-          surge ./allure-report https://kwant-automation-dashboard.surge.sh --token $SURGE_TOKEN
+          npx surge ./allure-report https://kwant-automation-dashboard.surge.sh --token $SURGE_TOKEN
 
-            - name: 💬 Send Minimalist Slack Notification
-          if: always()
-           run: |
+      - name: 💬 Send Minimalist Slack Notification
+        if: always()
+        run: |
           TOTAL="${{ steps.newman.outputs.total }}"
           PASSED="${{ steps.newman.outputs.passed }}"
           FAILED="${{ steps.newman.outputs.failed }}"
@@ -82,7 +80,6 @@ jobs:
             COLOR="danger"
           fi
 
-          # Minimalist, informative JSON payload
           PAYLOAD=$(jq -n \
             --arg color "$COLOR" \
             --arg status "$STATUS" \
@@ -94,14 +91,7 @@ jobs:
                   color: $color,
                   title: $status,
                   text: $summary,
-                  footer: "Last Run: \($timestamp)",
-                  actions: [
-                    {
-                      type: "button",
-                      text: "View Full Report",
-                      url: "https://kwant-automation-dashboard.surge.sh/"
-                    }
-                  ]
+                  footer: "Last Run: \($timestamp)"
                 }
               ]
             }')
