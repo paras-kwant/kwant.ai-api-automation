@@ -32,6 +32,86 @@ function cleanAllureResults() {
     }
 }
 
+// Extract base URL and environment from collection
+function extractEnvironmentInfo(collection) {
+    let baseUrl = 'https://api.example.com';
+    let environment = 'unknown';
+
+    try {
+        // Recursively find all requests in collection
+        const findRequests = (items) => {
+            const requests = [];
+            if (!items) return requests;
+
+            items.forEach(item => {
+                if (item.request && item.request.url) {
+                    requests.push(item.request.url);
+                }
+                if (item.item) {
+                    requests.push(...findRequests(item.item));
+                }
+            });
+            return requests;
+        };
+
+        const urls = findRequests(collection.item);
+        console.log(`📊 Found ${urls.length} requests in collection`);
+        
+        if (urls.length > 0) {
+            // Get the first URL and handle different formats
+            let firstUrl = urls[0];
+            console.log(`🔍 Raw URL object:`, JSON.stringify(firstUrl, null, 2));
+            
+            let urlString = '';
+            
+            // Handle different Postman URL formats
+            if (typeof firstUrl === 'string') {
+                urlString = firstUrl;
+            } else if (typeof firstUrl === 'object') {
+                // Try different properties Postman might use
+                urlString = firstUrl.raw || 
+                           firstUrl.href || 
+                           (firstUrl.protocol ? `${firstUrl.protocol}://${firstUrl.host?.join?.('.') || firstUrl.host}` : '');
+            }
+
+            console.log(`🔗 Extracted URL string: ${urlString}`);
+
+            if (urlString) {
+                // Remove variables like {{baseUrl}}
+                urlString = urlString.replace(/\{\{[^}]+\}\}/g, '');
+                
+                // Parse URL to extract base URL
+                const urlMatch = urlString.match(/^(https?:\/\/[^\/\?]+)/);
+                if (urlMatch) {
+                    baseUrl = urlMatch[1];
+                 
+                    const hostMatch = baseUrl.match(/https?:\/\/([^.]+)\./);
+                    if (hostMatch) {
+                        const subdomain = hostMatch[1];
+                        if (['uat', 'staging', 'stage', 'dev', 'test', 'qa'].includes(subdomain.toLowerCase())) {
+                            environment = subdomain.toLowerCase();
+                        } else if (['www', 'api'].includes(subdomain.toLowerCase())) {
+                            environment = 'production';
+                        } else {
+                            environment = subdomain.toLowerCase();
+                        }
+                    } else {
+                        environment = 'production';
+                    }
+                }
+            }
+        }
+
+        console.log(`🌍 Detected Base URL: ${baseUrl}`);
+        console.log(`🔧 Detected Environment: ${environment}`);
+    } catch (err) {
+        console.warn('⚠️ Could not extract environment info, using defaults:', err.message);
+        console.error(err);
+    }
+
+    return { baseUrl, environment };
+}
+
 // Add executor info
 function addExecutorInfo() {
     const content = `
@@ -43,13 +123,15 @@ executor.url=http://localhost
     fs.writeFileSync(path.join(ALLURE_RESULTS_DIR, 'executor.properties'), content);
 }
 
-// Add environment info
-function addEnvironmentInfo() {
+// Add environment info dynamically
+function addEnvironmentInfo(baseUrl, environment) {
     const content = `
-POSTMAN_ENV=dev
-API_URL=https://api.example.com
+POSTMAN_ENV=${environment}
+API_URL=${baseUrl}
+TIMESTAMP=${new Date().toISOString()}
 `.trim();
     fs.writeFileSync(path.join(ALLURE_RESULTS_DIR, 'environment.properties'), content);
+    console.log(`📝 Environment info saved: ${environment} - ${baseUrl}`);
 }
 
 // Fetch Postman collection
@@ -129,9 +211,14 @@ function saveCurrentRunHistory() {
 // Deploy to Surge using token
 function deployToSurge() {
     return new Promise((resolve, reject) => {
-        const cmd = `surge ./allure-report https://${SURGE_URL} --token ${SURGE_TOKEN}`;
+        const cmd = `surge ./allure-report ${SURGE_URL} --token ${SURGE_TOKEN}`;
         exec(cmd, (err, stdout, stderr) => {
-            if (err) return reject(err);
+            console.log('Surge Output:', stdout);
+            if (stderr) console.log('Surge Stderr:', stderr);
+            if (err) {
+                console.error('Surge Error:', err);
+                return reject(err);
+            }
             console.log(`🌐 Allure report deployed to Surge: https://${SURGE_URL}`);
             resolve();
         });
@@ -147,9 +234,16 @@ async function runTests() {
 
     cleanAllureResults();
     addExecutorInfo();
-    addEnvironmentInfo();
 
     const collection = await getCollection();
+    
+    // Debug: Log collection structure
+    console.log('📦 Collection Name:', collection.info?.name || 'Unknown');
+    console.log('📦 Collection has items:', !!collection.item);
+    
+    // Extract environment info from collection URLs
+    const { baseUrl, environment } = extractEnvironmentInfo(collection);
+    addEnvironmentInfo(baseUrl, environment);
 
     newman.run({
         collection,
