@@ -1,6 +1,8 @@
 name: kwant-api-automation
 
 on:
+  schedule:
+    - cron: "15 4 * * *"
   workflow_dispatch:
 
 jobs:
