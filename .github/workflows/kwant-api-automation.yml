@@ -56,11 +56,26 @@ jobs:
           echo "total_time=$TOTAL_TIME" >> $GITHUB_OUTPUT
           echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
 
+      - name: 📊 Generate Allure Report
+        if: always()
+        run: |
+          # Install Allure commandline if not already installed
+          npm install -g allure-commandline --save-dev
+          
+          # Generate Allure report from results
+          npx allure generate allure-results --clean -o allure-report
+          
+          echo "✅ Allure report generated successfully"
+
+      - name: 📦 Install Surge
+        if: always()
+        run: npm install --global surge
+
       - name: 🌍 Deploy Allure Report to Surge
         if: always()
         run: |
-          npm install --global surge
           surge ./allure-report https://kwant-automation-dashboard.surge.sh --token $SURGE_TOKEN
+          echo "✅ Report deployed to https://kwant-automation-dashboard.surge.sh"
 
       - name: 💬 Send Slack Notification
         if: always()
