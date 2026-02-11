@@ -28,32 +28,55 @@ jobs:
       - name: 📦 Install Dependencies
         run: npm install
 
+      - name: 🔧 Install Allure
+        run: |
+          sudo apt-add-repository ppa:qameta/allure -y
+          sudo apt-get update
+          sudo apt-get install allure -y
+
       - name: 🚀 Run Newman Tests
         id: newman
         continue-on-error: true
         run: |
-          npm run test | tee newman_output.txt
+          npm run test 2>&1 | tee newman_output.txt
 
-          # Extract stats from output
-          TOTAL=$(grep -o "Total requests: [0-9]*" newman_output.txt | awk '{print $3}' || echo 0)
-          FAILED=$(grep -o "Failed assertions: [0-9]*" newman_output.txt | awk '{print $3}' || echo 0)
-          PASSED=$((TOTAL - FAILED))
+          # Extract stats - FIXED parsing
+          TOTAL=$(grep "Total requests:" newman_output.txt | grep -oP '\d+' | head -1 || echo "0")
+          FAILED=$(grep "Failed assertions:" newman_output.txt | grep -oP '\d+' | head -1 || echo "0")
+          
+          # Calculate passed
+          if [[ "$TOTAL" =~ ^[0-9]+$ ]] && [[ "$FAILED" =~ ^[0-9]+$ ]]; then
+            PASSED=$((TOTAL - FAILED))
+          else
+            PASSED=0
+            TOTAL=0
+            FAILED=0
+          fi
+          
           SKIPPED=0
-          SUCCESS_RATE=0
 
+          # Calculate success rate
           if [[ $TOTAL -gt 0 ]]; then
             SUCCESS_RATE=$(awk "BEGIN {printf \"%.2f\", ($PASSED/$TOTAL) * 100}")
+          else
+            SUCCESS_RATE="0"
           fi
 
-          TOTAL_TIME=$(grep -o "completed in .*" newman_output.txt | awk '{print $3}' || echo "N/A")
+          # Get timestamp
           TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
 
+          # Debug output
+          echo "DEBUG: TOTAL=$TOTAL"
+          echo "DEBUG: FAILED=$FAILED"
+          echo "DEBUG: PASSED=$PASSED"
+          echo "DEBUG: SUCCESS_RATE=$SUCCESS_RATE"
+
+          # Set outputs
           echo "total=$TOTAL" >> $GITHUB_OUTPUT
           echo "passed=$PASSED" >> $GITHUB_OUTPUT
           echo "failed=$FAILED" >> $GITHUB_OUTPUT
           echo "skipped=$SKIPPED" >> $GITHUB_OUTPUT
           echo "success_rate=$SUCCESS_RATE" >> $GITHUB_OUTPUT
-          echo "total_time=$TOTAL_TIME" >> $GITHUB_OUTPUT
           echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
 
       - name: 🌍 Deploy Allure Report to Surge
@@ -70,21 +93,21 @@ jobs:
           FAILED="${{ steps.newman.outputs.failed }}"
           SKIPPED="${{ steps.newman.outputs.skipped }}"
           SUCCESS_RATE="${{ steps.newman.outputs.success_rate }}"
-          TOTAL_TIME="${{ steps.newman.outputs.total_time }}"
           TIMESTAMP="${{ steps.newman.outputs.timestamp }}"
 
+          # Determine status and color
           if [[ "$FAILED" -eq 0 && "$TOTAL" -gt 0 ]]; then
             STATUS="✅ API tests completed successfully"
             COLOR="good"
           elif [[ "$TOTAL" -eq 0 ]]; then
-            STATUS="⚠️ API tests tests did not run properly"
+            STATUS="⚠️ API tests did not run properly"
             COLOR="warning"
           else
             STATUS="🚨 PROD Health Check tests failed"
             COLOR="danger"
           fi
 
-          # Create JSON payload using jq for proper escaping
+          # Create JSON payload
           PAYLOAD=$(jq -n \
             --arg color "$COLOR" \
             --arg status "$STATUS" \
@@ -93,7 +116,6 @@ jobs:
             --arg failed "$FAILED" \
             --arg skipped "$SKIPPED" \
             --arg success_rate "$SUCCESS_RATE%" \
-            --arg total_time "$TOTAL_TIME" \
             --arg timestamp "$TIMESTAMP" \
             '{
               attachments: [
@@ -106,7 +128,6 @@ jobs:
                     {title: "❌ Failed", value: $failed, short: true},
                     {title: "⏭️ Skipped", value: $skipped, short: true},
                     {title: "📈 Success Rate", value: $success_rate, short: true},
-                    {title: "⏳ Total Time", value: $total_time, short: true},
                     {title: "🕐 Last Checked", value: $timestamp, short: false}
                   ],
                   actions: [
@@ -120,6 +141,7 @@ jobs:
               ]
             }')
 
+          # Send to Slack
           curl -X POST -H 'Content-type: application/json' \
             --data "$PAYLOAD" \
             "$SLACK_WEBHOOK_URL"
