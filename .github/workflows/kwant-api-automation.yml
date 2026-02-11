@@ -2,49 +2,38 @@ name: kwant-api-automation
 
 on:
   schedule:
-    - cron: "15 4 * * *"  # Runs daily at 04:15 UTC
+    - cron: "15 4 * * *"
   workflow_dispatch:
 
 jobs:
   run-api-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
 
     env:
       COLLECTION_UID: ${{ secrets.COLLECTION_UID }}
       POSTMAN_API_KEY: ${{ secrets.POSTMAN_API_KEY }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-      GH_PAGES_BRANCH: gh-pages
+      SURGE_TOKEN: ${{ secrets.SURGE_TOKEN }}
 
     steps:
-      # 1️⃣ Checkout repository
       - name: 🛒 Checkout Repository
         uses: actions/checkout@v3
 
-      # 2️⃣ Setup Node.js
       - name: ⚙️ Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: 20
 
-      # 3️⃣ Install Dependencies
       - name: 📦 Install Dependencies
         run: npm install
 
-      # 4️⃣ Configure Git user (for gh-pages deployment)
-      - name: 📝 Configure Git user
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-      # 5️⃣ Run API Automation Tests
       - name: 🚀 Run Newman Tests
         id: newman
         continue-on-error: true
         run: |
-          node index.js | tee newman_output.txt
+          node run-tests.js | tee newman_output.txt
 
-          # Extract stats from Newman output
           TOTAL=$(grep "Total requests:" newman_output.txt | grep -oP '\d+' | head -1 || echo 0)
           FAILED=$(grep "Failed assertions:" newman_output.txt | grep -oP '\d+' | head -1 || echo 0)
           PASSED=$((TOTAL - FAILED))
@@ -66,19 +55,17 @@ jobs:
           echo "total_time=$TOTAL_TIME" >> $GITHUB_OUTPUT
           echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
 
-      # 6️⃣ Deploy Allure Report to GitHub Pages
-      - name: 🌍 Deploy Allure Report to GitHub Pages
+      - name: 🌍 Deploy Allure Report to Surge
         if: always()
         run: |
-          npm install --global gh-pages
+          npm install --global surge
+          
           if [ -d "./allure-report" ]; then
-            gh-pages -d ./allure-report -b $GH_PAGES_BRANCH -r https://github.com/${{ github.repository }}.git
-            echo "✅ Allure report deployed to GitHub Pages: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+            surge ./allure-report https://kwant-automation-dashboard.surge.sh --token $SURGE_TOKEN
           else
-            echo "⚠️ allure-report folder not found, skipping deployment"
+            echo "⚠️ allure-report not found, skipping"
           fi
 
-      # 7️⃣ Send Slack Notification
       - name: 💬 Send Slack Notification
         if: always()
         run: |
@@ -129,13 +116,11 @@ jobs:
                     {
                       type: "button",
                       text: "View Detailed Report",
-                      url: "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+                      url: "https://kwant-automation-dashboard.surge.sh/"
                     }
                   ]
                 }
               ]
             }')
 
-          curl -X POST -H 'Content-type: application/json' \
-            --data "$PAYLOAD" \
-            "$SLACK_WEBHOOK_URL"
+          curl -X POST -H 'Content-type: application/json' --data "$PAYLOAD" "$SLACK_WEBHOOK_URL"
