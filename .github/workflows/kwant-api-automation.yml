@@ -39,6 +39,10 @@ jobs:
         continue-on-error: true
         run: |
           npm run test 2>&1 | tee newman_output.txt
+          
+          # Store exit code
+          TEST_EXIT_CODE=$?
+          echo "test_exit_code=$TEST_EXIT_CODE" >> $GITHUB_OUTPUT
 
           # Extract stats - FIXED parsing
           TOTAL=$(grep "Total requests:" newman_output.txt | grep -oP '\d+' | head -1 || echo "0")
@@ -83,7 +87,18 @@ jobs:
         if: always()
         run: |
           npm install --global surge
-          surge ./allure-report https://kwant-automation-dashboard.surge.sh --token $SURGE_TOKEN
+          
+          # Check if report exists
+          if [ -d "./allure-report" ]; then
+            echo "✅ Allure report found, deploying..."
+            surge ./allure-report https://kwant-automation-dashboard.surge.sh --token $SURGE_TOKEN
+          else
+            echo "⚠️ No allure-report directory found, skipping deployment"
+            echo "Creating placeholder page..."
+            mkdir -p ./allure-report
+            echo "<html><body><h1>Report generation failed</h1><p>Check workflow logs</p></body></html>" > ./allure-report/index.html
+            surge ./allure-report https://kwant-automation-dashboard.surge.sh --token $SURGE_TOKEN
+          fi
 
       - name: 💬 Send Slack Notification
         if: always()
