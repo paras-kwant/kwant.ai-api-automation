@@ -32,7 +32,7 @@ function cleanAllureResults() {
     }
 }
 
-// 🔒 Sanitize sensitive data
+// 🔒 NEW: Sanitize sensitive data
 function sanitizeAllureResults() {
     try {
         const files = fs.readdirSync(ALLURE_RESULTS_DIR).filter(f => f.endsWith('.txt') || f.endsWith('.json'));
@@ -63,6 +63,7 @@ function extractEnvironmentInfo(collection) {
     let environment = 'unknown';
 
     try {
+        // Recursively find all requests in collection
         const findRequests = (items) => {
             const requests = [];
             if (!items) return requests;
@@ -82,14 +83,17 @@ function extractEnvironmentInfo(collection) {
         console.log(`📊 Found ${urls.length} requests in collection`);
         
         if (urls.length > 0) {
+            // Get the first URL and handle different formats
             let firstUrl = urls[0];
             console.log(`🔍 Raw URL object:`, JSON.stringify(firstUrl, null, 2));
             
             let urlString = '';
             
+            // Handle different Postman URL formats
             if (typeof firstUrl === 'string') {
                 urlString = firstUrl;
             } else if (typeof firstUrl === 'object') {
+                // Try different properties Postman might use
                 urlString = firstUrl.raw || 
                            firstUrl.href || 
                            (firstUrl.protocol ? `${firstUrl.protocol}://${firstUrl.host?.join?.('.') || firstUrl.host}` : '');
@@ -98,8 +102,10 @@ function extractEnvironmentInfo(collection) {
             console.log(`🔗 Extracted URL string: ${urlString}`);
 
             if (urlString) {
+                // Remove variables like {{baseUrl}}
                 urlString = urlString.replace(/\{\{[^}]+\}\}/g, '');
                 
+                // Parse URL to extract base URL
                 const urlMatch = urlString.match(/^(https?:\/\/[^\/\?]+)/);
                 if (urlMatch) {
                     baseUrl = urlMatch[1];
@@ -169,16 +175,16 @@ function mergeHistory() {
 
     const folders = fs.readdirSync(HISTORY_DIR)
         .map(name => ({ name, time: fs.statSync(path.join(HISTORY_DIR, name)).mtime.getTime() }))
-        .sort((a, b) => b.time - a.time)
-        .slice(0, 3)
-        .reverse();
+        .sort((a, b) => b.time - a.time) // newest first
+        .slice(0, 3) // last 3 runs
+        .reverse(); // oldest first
 
     folders.forEach(folder => {
         const src = path.join(HISTORY_DIR, folder.name);
         if (fs.existsSync(src)) {
             fs.readdirSync(src).forEach(file => {
                 const srcFile = path.join(src, file);
-                const destFile = path.join(targetHistory, `${folder.name}-${file}`);
+                const destFile = path.join(targetHistory, `${folder.name}-${file}`); // unique name
                 fs.copyFileSync(srcFile, destFile);
             });
         }
@@ -216,6 +222,7 @@ function saveCurrentRunHistory() {
 
     console.log(`📂 Saved current run's history to ${runFolder}`);
 
+    // Keep only last 3 runs
     const folders = fs.readdirSync(HISTORY_DIR)
         .map(name => ({ name, time: fs.statSync(path.join(HISTORY_DIR, name)).mtime.getTime() }))
         .sort((a, b) => b.time - a.time);
@@ -255,9 +262,11 @@ async function runTests() {
 
     const collection = await getCollection();
     
+    // Debug: Log collection structure
     console.log('📦 Collection Name:', collection.info?.name || 'Unknown');
     console.log('📦 Collection has items:', !!collection.item);
     
+    // Extract environment info from collection URLs
     const { baseUrl, environment } = extractEnvironmentInfo(collection);
     addEnvironmentInfo(baseUrl, environment);
 
@@ -270,17 +279,15 @@ async function runTests() {
         if (err) return console.error('❌ Newman run failed:', err);
 
         console.log('✅ Newman tests completed!');
-        
-        // 🔥 FIXED: Output in exact format GitHub Actions expects
         console.log(`Total requests: ${summary.run.stats.requests.total}`);
         console.log(`Failed requests: ${summary.run.stats.requests.failed}`);
         console.log(`Failed assertions: ${summary.run.stats.assertions.failed}`);
 
         try {
-            sanitizeAllureResults();
-            await generateAllureReport();
-            saveCurrentRunHistory();
-            await deployToSurge();
+            sanitizeAllureResults();       // 🔒 NEW: Sanitize before report
+            await generateAllureReport();  // merge trend
+            saveCurrentRunHistory();       // save current run
+            await deployToSurge();         // deploy online via token
         } catch (err) {
             console.error('❌ Could not generate/deploy Allure report:', err.message);
         }
