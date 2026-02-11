@@ -2,19 +2,18 @@ name: kwant-api-automation
 
 on:
   schedule:
-    - cron: "15 4 * * *"
+    - cron: "15 4 * * *"   # runs daily at 04:15 UTC
   workflow_dispatch:
 
 jobs:
   run-api-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     env:
       COLLECTION_UID: ${{ secrets.COLLECTION_UID }}
       POSTMAN_API_KEY: ${{ secrets.POSTMAN_API_KEY }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-      SURGE_TOKEN: ${{ secrets.SURGE_TOKEN }}
 
     steps:
       - name: 🛒 Checkout Repository
@@ -34,7 +33,6 @@ jobs:
         run: |
           npm run test | tee newman_output.txt
 
-          # Extract stats from output - FIXED
           TOTAL=$(grep "Total requests:" newman_output.txt | grep -oP '\d+' | head -1 || echo 0)
           FAILED=$(grep "Failed assertions:" newman_output.txt | grep -oP '\d+' | head -1 || echo 0)
           PASSED=$((TOTAL - FAILED))
@@ -56,18 +54,27 @@ jobs:
           echo "total_time=$TOTAL_TIME" >> $GITHUB_OUTPUT
           echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
 
-      - name: 🌍 Deploy Allure Report to Surge
+      - name: 🧹 Clean Allure Results
+        run: |
+          rm -rf allure-results/*
+          mkdir -p allure-results/history
+
+      - name: 🧪 Generate Allure Report
+        run: |
+          npx allure generate allure-results -o allure-report --clean
+
+      - name: 🌍 Deploy Allure Report to GitHub Pages
         if: always()
         run: |
-          npm install --global surge
-          
+          npm install --global gh-pages
           if [ -d "./allure-report" ]; then
-            surge ./allure-report https://kwant-automation-dashboard.surge.sh --token $SURGE_TOKEN
+            gh-pages -d ./allure-report -b gh-pages -r https://github.com/${{ github.repository }}.git
+            echo "✅ Allure report deployed to GitHub Pages"
           else
             echo "⚠️ allure-report not found, skipping"
           fi
 
-      - name: 💬 Send Slack Notification
+      - name: 💬 Send Slack Notification with Latest Reports
         if: always()
         run: |
           TOTAL="${{ steps.newman.outputs.total }}"
@@ -82,14 +89,18 @@ jobs:
             STATUS="✅ API tests completed successfully"
             COLOR="good"
           elif [[ "$TOTAL" -eq 0 ]]; then
-            STATUS="⚠️ API tests tests did not run properly"
+            STATUS="⚠️ API tests did not run properly"
             COLOR="warning"
           else
             STATUS="🚨 PROD Health Check tests failed"
             COLOR="danger"
           fi
 
-          # Create JSON payload using jq for proper escaping
+          # Latest 5 GitHub Pages reports
+          REPORT_URL="https://paras-kwant.github.io/kwant.ai-api-automation/"
+          LATEST_REPORTS=$(curl -s https://api.github.com/repos/${GITHUB_REPOSITORY}/git/refs/heads/gh-pages \
+            | jq -r '.object.sha' 2>/dev/null || echo "")
+
           PAYLOAD=$(jq -n \
             --arg color "$COLOR" \
             --arg status "$STATUS" \
@@ -100,6 +111,7 @@ jobs:
             --arg success_rate "$SUCCESS_RATE%" \
             --arg total_time "$TOTAL_TIME" \
             --arg timestamp "$TIMESTAMP" \
+            --arg url "$REPORT_URL" \
             '{
               attachments: [
                 {
@@ -117,8 +129,8 @@ jobs:
                   actions: [
                     {
                       type: "button",
-                      text: "View Detailed Report",
-                      url: "https://kwant-automation-dashboard.surge.sh/"
+                      text: "View Latest Report",
+                      url: $url
                     }
                   ]
                 }
