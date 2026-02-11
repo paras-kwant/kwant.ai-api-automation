@@ -13,8 +13,9 @@ jobs:
     env:
       COLLECTION_UID: ${{ secrets.COLLECTION_UID }}
       POSTMAN_API_KEY: ${{ secrets.POSTMAN_API_KEY }}
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       SURGE_TOKEN: ${{ secrets.SURGE_TOKEN }}
+      SURGE_URL: kwant-automation-dashboard.surge.sh
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
     steps:
       - name: 🛒 Checkout Repository
@@ -59,7 +60,6 @@ jobs:
         if: always()
         run: |
           npm install --global surge
-          
           if [ -d "./allure-report" ]; then
             surge ./allure-report https://kwant-automation-dashboard.surge.sh --token $SURGE_TOKEN
           else
@@ -84,7 +84,7 @@ jobs:
             STATUS="⚠️ API tests did not run properly"
             COLOR="warning"
           else
-            STATUS="🚨 PROD Health Check tests failed"
+            STATUS="🚨 API tests failed"
             COLOR="danger"
           fi
 
