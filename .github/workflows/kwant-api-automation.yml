@@ -13,9 +13,8 @@ jobs:
     env:
       COLLECTION_UID: ${{ secrets.COLLECTION_UID }}
       POSTMAN_API_KEY: ${{ secrets.POSTMAN_API_KEY }}
-      SURGE_TOKEN: ${{ secrets.SURGE_TOKEN }}
-      SURGE_URL: kwant-automation-dashboard.surge.sh
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      SURGE_TOKEN: ${{ secrets.SURGE_TOKEN }}
 
     steps:
       - name: 🛒 Checkout Repository
@@ -33,8 +32,9 @@ jobs:
         id: newman
         continue-on-error: true
         run: |
-          node run-tests.js | tee newman_output.txt
+          npm run test | tee newman_output.txt
 
+          # Extract stats from output - FIXED
           TOTAL=$(grep "Total requests:" newman_output.txt | grep -oP '\d+' | head -1 || echo 0)
           FAILED=$(grep "Failed assertions:" newman_output.txt | grep -oP '\d+' | head -1 || echo 0)
           PASSED=$((TOTAL - FAILED))
@@ -60,6 +60,7 @@ jobs:
         if: always()
         run: |
           npm install --global surge
+          
           if [ -d "./allure-report" ]; then
             surge ./allure-report https://kwant-automation-dashboard.surge.sh --token $SURGE_TOKEN
           else
@@ -81,13 +82,14 @@ jobs:
             STATUS="✅ API tests completed successfully"
             COLOR="good"
           elif [[ "$TOTAL" -eq 0 ]]; then
-            STATUS="⚠️ API tests did not run properly"
+            STATUS="⚠️ API tests tests did not run properly"
             COLOR="warning"
           else
-            STATUS="🚨 API tests failed"
+            STATUS="🚨 PROD Health Check tests failed"
             COLOR="danger"
           fi
 
+          # Create JSON payload using jq for proper escaping
           PAYLOAD=$(jq -n \
             --arg color "$COLOR" \
             --arg status "$STATUS" \
@@ -123,4 +125,6 @@ jobs:
               ]
             }')
 
-          curl -X POST -H 'Content-type: application/json' --data "$PAYLOAD" "$SLACK_WEBHOOK_URL"
+          curl -X POST -H 'Content-type: application/json' \
+            --data "$PAYLOAD" \
+            "$SLACK_WEBHOOK_URL"
