@@ -42,11 +42,20 @@ function sanitizeAllureResults() {
             let content = fs.readFileSync(filePath, 'utf8');
             
             // Mask sensitive patterns
-            content = content.replace(/"api-key":\s*"[^"]+"/gi, '"api-key": "***REDACTED***"');
-            content = content.replace(/"authorization":\s*"[^"]+"/gi, '"authorization": "***REDACTED***"');
-            content = content.replace(/"postman-token":\s*"[^"]+"/gi, '"postman-token": "***REDACTED***"');
-            content = content.replace(/"x-api-key":\s*"[^"]+"/gi, '"x-api-key": "***REDACTED***"');
-            content = content.replace(/"cookie":\s*"[^"]+"/gi, '"cookie": "***REDACTED***"');
+content = content.replace(/"api-key":\s*"[^"]+"/gi, '"api-key": "***REDACTED***"');
+content = content.replace(/"authorization":\s*"[^"]+"/gi, '"authorization": "***REDACTED***"');
+content = content.replace(/"postman-token":\s*"[^"]+"/gi, '"postman-token": "***REDACTED***"');
+content = content.replace(/"x-api-key":\s*"[^"]+"/gi, '"x-api-key": "***REDACTED***"');
+content = content.replace(/"cookie":\s*"[^"]+"/gi, '"cookie": "***REDACTED***"');
+
+content = content.replace(/"x-auth-token":\s*"[^"]+"/gi, '"x-auth-token": "***REDACTED***"');
+content = content.replace(/"x-auth-project":\s*"[^"]+"/gi, '"x-auth-project": "***REDACTED***"');
+
+content = content.replace(/(API Key saved[:,]?\s*)([A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+)/gi, '$1***REDACTED***');
+
+content = content.replace(/\b[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\b/g, '***REDACTED***');
+
+            
             
             fs.writeFileSync(filePath, content);
         });
