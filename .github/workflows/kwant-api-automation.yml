@@ -15,7 +15,7 @@ jobs:
       POSTMAN_API_KEY: ${{ secrets.POSTMAN_API_KEY }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       SURGE_TOKEN: ${{ secrets.SURGE_TOKEN }}
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
     permissions:
       contents: write
@@ -76,43 +76,56 @@ jobs:
             echo "⚠️ No allure-report directory found!"
           fi
 
-      - name: 🤖 AI Failure Analysis
+      - name: 🤖 FREE AI Failure Analysis (Google Gemini)
         id: ai_analysis
         if: always()
         run: |
           FAILED="${{ steps.newman.outputs.failed }}"
           
           if [[ "$FAILED" -gt 0 ]]; then
-            echo "🤖 Running AI analysis on test failures..."
+            echo "🤖 Running FREE AI analysis on test failures..."
             
-            # Get the test output
+            # Get the test output (last 100 lines)
             TEST_OUTPUT=$(cat /tmp/test_output.txt | tail -100)
             
-            # Call Claude API for analysis
-            AI_RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
-              -H "content-type: application/json" \
-              -H "x-api-key: $ANTHROPIC_API_KEY" \
-              -H "anthropic-version: 2023-06-01" \
+            # Create prompt
+            PROMPT="You are an expert API test analyst. Analyze these Newman/Postman test failures and provide:
+
+1. Root Cause (1-2 sentences)
+2. Impact Level (Low/Medium/High)
+3. Recommended Fix (specific and actionable)
+4. Estimated Fix Time
+
+Keep your response concise and actionable. Format as plain text, not markdown.
+
+Test Output:
+${TEST_OUTPUT}"
+
+            # Escape for JSON properly
+            PROMPT_JSON=$(jq -n --arg p "$PROMPT" '$p')
+            
+            # Call Gemini API (FREE - No Credit Card!)
+            AI_RESPONSE=$(curl -s "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${{ secrets.GEMINI_API_KEY }}" \
+              -H 'Content-Type: application/json' \
               -d "{
-                \"model\": \"claude-sonnet-4-20250514\",
-                \"max_tokens\": 1024,
-                \"messages\": [{
-                  \"role\": \"user\",
-                  \"content\": \"You are an expert API test analyst. Analyze these Newman/Postman test failures and provide:\n\n1. Root Cause (1-2 sentences)\n2. Impact Level (Low/Medium/High)\n3. Recommended Fix (specific and actionable)\n4. Estimated Fix Time\n\nKeep your response concise and actionable. Format as plain text, not markdown.\n\nTest Output:\n${TEST_OUTPUT}\"
+                \"contents\": [{
+                  \"parts\": [{
+                    \"text\": $PROMPT_JSON
+                  }]
                 }]
               }")
             
             # Extract AI response text
-            AI_TEXT=$(echo "$AI_RESPONSE" | jq -r '.content[0].text // "AI analysis unavailable"' | head -20)
+            AI_TEXT=$(echo "$AI_RESPONSE" | jq -r '.candidates[0].content.parts[0].text // "AI analysis unavailable - check API key"' | head -c 500)
             
-            # Save to output (escape for JSON)
+            # Save to output
             echo "ai_insights<<EOF" >> $GITHUB_OUTPUT
             echo "$AI_TEXT" >> $GITHUB_OUTPUT
             echo "EOF" >> $GITHUB_OUTPUT
             
-            echo "✅ AI analysis completed"
+            echo "✅ FREE AI analysis completed"
           else
-            echo "ai_insights=All tests passed - no analysis needed" >> $GITHUB_OUTPUT
+            echo "ai_insights=All tests passed - no analysis needed ✅" >> $GITHUB_OUTPUT
             echo "✅ No failures to analyze"
           fi
 
@@ -164,7 +177,9 @@ jobs:
           
           # Add AI analysis field if there were failures
           if [[ "$FAILED" -gt 0 ]] && [[ -n "$AI_INSIGHTS" ]]; then
-            FIELDS="$FIELDS"',{"title": "🤖 AI Analysis", "value": "'"${AI_INSIGHTS:0:500}"'", "short": false}'
+            # Escape special characters for JSON
+            AI_ESCAPED=$(echo "$AI_INSIGHTS" | sed 's/"/\\"/g' | sed "s/'/\\'/g" | tr '\n' ' ')
+            FIELDS="$FIELDS"',{"title": "🤖 AI Analysis", "value": "'"${AI_ESCAPED:0:500}"'", "short": false}'
           fi
           
           FIELDS="$FIELDS]"
