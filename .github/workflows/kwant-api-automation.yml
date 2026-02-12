@@ -135,6 +135,3 @@ jobs:
           curl -X POST -H 'Content-type: application/json' \
             --data "$PAYLOAD" \
             "$SLACK_WEBHOOK_URL"
-Your reports will be available at:
-```
-https://paras-kwant.github.io/kwant.ai-api-automation/
