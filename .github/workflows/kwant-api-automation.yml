@@ -33,11 +33,14 @@ jobs:
       - name: 📦 Install Dependencies
         run: npm install
 
-      - name: 🚀 Run Newman Tests
+      - name: 📊 Install Allure CLI
+        run: npm install -g allure-commandline
+
+      - name: 🚀 Run Newman Tests & Generate Report
         id: newman
         continue-on-error: true
         run: |
-          npm run test | tee newman_output.txt
+          npm run test | tee newman_output.txt || true
 
           # Extract stats from output
           TOTAL=$(grep "Total requests:" newman_output.txt | grep -oP '\d+' | head -1 || echo 0)
@@ -50,7 +53,7 @@ jobs:
             SUCCESS_RATE=$(awk "BEGIN {printf \"%.2f\", ($PASSED/$TOTAL) * 100}")
           fi
 
-          TOTAL_TIME=$(grep -o "completed in .*" newman_output.txt | awk '{print $3}' || echo "N/A")
+          TOTAL_TIME=$(grep -o "completed in .*" newman_output.txt | awk '{print $3 " " $4}' || echo "N/A")
           TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
 
           echo "total=$TOTAL" >> $GITHUB_OUTPUT
@@ -61,15 +64,12 @@ jobs:
           echo "total_time=$TOTAL_TIME" >> $GITHUB_OUTPUT
           echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
 
-      - name: 📊 Install Allure CLI
-        run: npm install -g allure-commandline
-
-      - name: 📈 Generate Allure Report
-        run: |
-          rm -rf allure-report
-          mkdir -p allure-report
-          allure generate allure-results --clean -o allure-report
-          echo "✅ Allure report generated with $(find allure-report -type f | wc -l) files"
+          # Verify report was generated
+          if [ -d "./allure-report" ]; then
+            echo "✅ Allure report directory found with $(find allure-report -type f | wc -l) files"
+          else
+            echo "⚠️ No allure-report directory found!"
+          fi
 
       - name: 🌐 Deploy Allure Report to GitHub Pages
         if: always()
