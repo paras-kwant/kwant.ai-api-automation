@@ -14,8 +14,6 @@ jobs:
       COLLECTION_UID: ${{ secrets.COLLECTION_UID }}
       POSTMAN_API_KEY: ${{ secrets.POSTMAN_API_KEY }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-      SURGE_TOKEN: ${{ secrets.SURGE_TOKEN }}
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
     permissions:
       contents: write
@@ -34,20 +32,16 @@ jobs:
       - name: 📦 Install Dependencies
         run: npm install
 
-      - name: 📊 Install Allure CLI
-        run: npm install -g allure-commandline
-
-      - name: 🚀 Run Newman Tests & Generate Report
+      - name: 🚀 Run Newman Tests
         id: newman
         continue-on-error: true
         run: |
-          npm run test 2>&1 | tee newman_output.txt || true
+          npm run test | tee newman_output.txt
 
           # Extract stats from output
-          TOTAL=$(grep "requests" newman_output.txt | grep -oP '\d+(?= │\s+\d+ │)' | head -1 || echo 0)
-          FAILED_REQUESTS=$(grep "requests" newman_output.txt | grep -oP '│\s+\d+ │\s+\K\d+' | head -1 || echo 0)
-          FAILED_ASSERTIONS=$(grep "assertions" newman_output.txt | grep -oP '│\s+\d+ │\s+\K\d+' | head -1 || echo 0)
-          PASSED=$((TOTAL - FAILED_REQUESTS))
+          TOTAL=$(grep "Total requests:" newman_output.txt | grep -oP '\d+' | head -1 || echo 0)
+          FAILED=$(grep "Failed assertions:" newman_output.txt | grep -oP '\d+' | head -1 || echo 0)
+          PASSED=$((TOTAL - FAILED))
           SKIPPED=0
           SUCCESS_RATE=0
 
@@ -55,68 +49,18 @@ jobs:
             SUCCESS_RATE=$(awk "BEGIN {printf \"%.2f\", ($PASSED/$TOTAL) * 100}")
           fi
 
-          TOTAL_TIME=$(grep "total run duration:" newman_output.txt | grep -oP '\d+\.?\d*[a-z]+' || echo "N/A")
+          TOTAL_TIME=$(grep -o "completed in .*" newman_output.txt | awk '{print $3}' || echo "N/A")
           TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
 
           echo "total=$TOTAL" >> $GITHUB_OUTPUT
           echo "passed=$PASSED" >> $GITHUB_OUTPUT
-          echo "failed=$FAILED_ASSERTIONS" >> $GITHUB_OUTPUT
+          echo "failed=$FAILED" >> $GITHUB_OUTPUT
           echo "skipped=$SKIPPED" >> $GITHUB_OUTPUT
           echo "success_rate=$SUCCESS_RATE" >> $GITHUB_OUTPUT
           echo "total_time=$TOTAL_TIME" >> $GITHUB_OUTPUT
           echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
 
-          # Save full output for AI analysis
-          cat newman_output.txt > /tmp/test_output.txt
-
-          # Verify report was generated
-          if [ -d "./allure-report" ]; then
-            echo "✅ Allure report directory found with $(find allure-report -type f | wc -l) files"
-          else
-            echo "⚠️ No allure-report directory found!"
-          fi
-
-      - name: 🤖 AI Failure Analysis
-        id: ai_analysis
-        if: always()
-        run: |
-          FAILED="${{ steps.newman.outputs.failed }}"
-          
-          if [[ "$FAILED" -gt 0 ]]; then
-            echo "🤖 Running AI analysis on test failures..."
-            
-            # Get the test output
-            TEST_OUTPUT=$(cat /tmp/test_output.txt | tail -100)
-            
-            # Call Claude API for analysis
-            AI_RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
-              -H "content-type: application/json" \
-              -H "x-api-key: $ANTHROPIC_API_KEY" \
-              -H "anthropic-version: 2023-06-01" \
-              -d "{
-                \"model\": \"claude-sonnet-4-20250514\",
-                \"max_tokens\": 1024,
-                \"messages\": [{
-                  \"role\": \"user\",
-                  \"content\": \"You are an expert API test analyst. Analyze these Newman/Postman test failures and provide:\n\n1. Root Cause (1-2 sentences)\n2. Impact Level (Low/Medium/High)\n3. Recommended Fix (specific and actionable)\n4. Estimated Fix Time\n\nKeep your response concise and actionable. Format as plain text, not markdown.\n\nTest Output:\n${TEST_OUTPUT}\"
-                }]
-              }")
-            
-            # Extract AI response text
-            AI_TEXT=$(echo "$AI_RESPONSE" | jq -r '.content[0].text // "AI analysis unavailable"' | head -20)
-            
-            # Save to output (escape for JSON)
-            echo "ai_insights<<EOF" >> $GITHUB_OUTPUT
-            echo "$AI_TEXT" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-            
-            echo "✅ AI analysis completed"
-          else
-            echo "ai_insights=All tests passed - no analysis needed" >> $GITHUB_OUTPUT
-            echo "✅ No failures to analyze"
-          fi
-
-      - name: 🌐 Deploy Allure Report to GitHub Pages
+      - name: 📊 Deploy Allure Report to GitHub Pages
         if: always()
         uses: peaceiris/actions-gh-pages@v3
         with:
@@ -126,7 +70,7 @@ jobs:
           user_name: 'github-actions[bot]'
           user_email: 'github-actions[bot]@users.noreply.github.com'
 
-      - name: 💬 Send Slack Notification with AI Analysis
+      - name: 💬 Send Slack Notification
         if: always()
         run: |
           REPO_NAME="${{ github.event.repository.name }}"
@@ -139,7 +83,6 @@ jobs:
           SUCCESS_RATE="${{ steps.newman.outputs.success_rate }}"
           TOTAL_TIME="${{ steps.newman.outputs.total_time }}"
           TIMESTAMP="${{ steps.newman.outputs.timestamp }}"
-          AI_INSIGHTS="${{ steps.ai_analysis.outputs.ai_insights }}"
 
           if [[ "$FAILED" -eq 0 && "$TOTAL" -gt 0 ]]; then
             STATUS="✅ API tests completed successfully"
@@ -148,38 +91,35 @@ jobs:
             STATUS="⚠️ API tests did not run properly"
             COLOR="warning"
           else
-            STATUS="🚨 API Health Check tests failed"
+            STATUS="🚨 PROD Health Check tests failed"
             COLOR="danger"
           fi
-
-          # Build fields array
-          FIELDS='[
-            {"title": "Total Tests", "value": "'"$TOTAL"'", "short": true},
-            {"title": "✅ Passed", "value": "'"$PASSED"'", "short": true},
-            {"title": "❌ Failed", "value": "'"$FAILED"'", "short": true},
-            {"title": "⏭️ Skipped", "value": "'"$SKIPPED"'", "short": true},
-            {"title": "📈 Success Rate", "value": "'"$SUCCESS_RATE%"'", "short": true},
-            {"title": "⏳ Total Time", "value": "'"$TOTAL_TIME"'", "short": true},
-            {"title": "🕐 Last Checked", "value": "'"$TIMESTAMP"'", "short": false}'
-          
-          # Add AI analysis field if there were failures
-          if [[ "$FAILED" -gt 0 ]] && [[ -n "$AI_INSIGHTS" ]]; then
-            FIELDS="$FIELDS"',{"title": "🤖 AI Analysis", "value": "'"${AI_INSIGHTS:0:500}"'", "short": false}'
-          fi
-          
-          FIELDS="$FIELDS]"
 
           PAYLOAD=$(jq -n \
             --arg color "$COLOR" \
             --arg status "$STATUS" \
+            --arg total "$TOTAL" \
+            --arg passed "$PASSED" \
+            --arg failed "$FAILED" \
+            --arg skipped "$SKIPPED" \
+            --arg success_rate "$SUCCESS_RATE%" \
+            --arg total_time "$TOTAL_TIME" \
+            --arg timestamp "$TIMESTAMP" \
             --arg preview_url "$PREVIEW_URL" \
-            --argjson fields "$FIELDS" \
             '{
               attachments: [
                 {
                   color: $color,
                   title: $status,
-                  fields: $fields,
+                  fields: [
+                    {title: "Total Tests", value: $total, short: true},
+                    {title: "✅ Passed", value: $passed, short: true},
+                    {title: "❌ Failed", value: $failed, short: true},
+                    {title: "⏭️ Skipped", value: $skipped, short: true},
+                    {title: "📈 Success Rate", value: $success_rate, short: true},
+                    {title: "⏳ Total Time", value: $total_time, short: true},
+                    {title: "🕐 Last Checked", value: $timestamp, short: false}
+                  ],
                   actions: [
                     {
                       type: "button",
@@ -193,4 +133,4 @@ jobs:
 
           curl -X POST -H 'Content-type: application/json' \
             --data "$PAYLOAD" \
-            "$SLACK_WEBHOOK_URL"
+            "$SLACK_WEBHOOK_URLs"
