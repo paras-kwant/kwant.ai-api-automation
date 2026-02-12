@@ -14,7 +14,11 @@ jobs:
       COLLECTION_UID: ${{ secrets.COLLECTION_UID }}
       POSTMAN_API_KEY: ${{ secrets.POSTMAN_API_KEY }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-      SURGE_TOKEN: ${{ secrets.SURGE_TOKEN }}
+
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
 
     steps:
       - name: 🛒 Checkout Repository
@@ -34,7 +38,7 @@ jobs:
         run: |
           npm run test | tee newman_output.txt
 
-          # Extract stats from output - FIXED
+          # Extract stats from output
           TOTAL=$(grep "Total requests:" newman_output.txt | grep -oP '\d+' | head -1 || echo 0)
           FAILED=$(grep "Failed assertions:" newman_output.txt | grep -oP '\d+' | head -1 || echo 0)
           PASSED=$((TOTAL - FAILED))
@@ -56,20 +60,22 @@ jobs:
           echo "total_time=$TOTAL_TIME" >> $GITHUB_OUTPUT
           echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
 
-      - name: 🌍 Deploy Allure Report to Surge
+      - name: 📊 Deploy Allure Report to GitHub Pages
         if: always()
-        run: |
-          npm install --global surge
-          
-          if [ -d "./allure-report" ]; then
-            surge ./allure-report https://kwant-automation-dashboard.surge.sh --token $SURGE_TOKEN
-          else
-            echo "⚠️ allure-report not found, skipping"
-          fi
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./allure-report
+          force_orphan: true
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'
 
       - name: 💬 Send Slack Notification
         if: always()
         run: |
+          REPO_NAME="${{ github.event.repository.name }}"
+          PREVIEW_URL="https://${{ github.repository_owner }}.github.io/${REPO_NAME}/"
+          
           TOTAL="${{ steps.newman.outputs.total }}"
           PASSED="${{ steps.newman.outputs.passed }}"
           FAILED="${{ steps.newman.outputs.failed }}"
@@ -82,14 +88,13 @@ jobs:
             STATUS="✅ API tests completed successfully"
             COLOR="good"
           elif [[ "$TOTAL" -eq 0 ]]; then
-            STATUS="⚠️ API tests tests did not run properly"
+            STATUS="⚠️ API tests did not run properly"
             COLOR="warning"
           else
             STATUS="🚨 PROD Health Check tests failed"
             COLOR="danger"
           fi
 
-          # Create JSON payload using jq for proper escaping
           PAYLOAD=$(jq -n \
             --arg color "$COLOR" \
             --arg status "$STATUS" \
@@ -100,6 +105,7 @@ jobs:
             --arg success_rate "$SUCCESS_RATE%" \
             --arg total_time "$TOTAL_TIME" \
             --arg timestamp "$TIMESTAMP" \
+            --arg preview_url "$PREVIEW_URL" \
             '{
               attachments: [
                 {
@@ -118,7 +124,7 @@ jobs:
                     {
                       type: "button",
                       text: "View Detailed Report",
-                      url: "https://kwant-automation-dashboard.surge.sh/"
+                      url: $preview_url
                     }
                   ]
                 }
@@ -128,3 +134,24 @@ jobs:
           curl -X POST -H 'Content-type: application/json' \
             --data "$PAYLOAD" \
             "$SLACK_WEBHOOK_URL"
+```
+
+## Key Changes Made:
+
+1. ✅ **Removed Surge** - No more `SURGE_TOKEN` or Surge deployment step
+2. ✅ **Added GitHub Pages deployment** - Using the same `peaceiris/actions-gh-pages@v3` action
+3. ✅ **Added required permissions** - `contents: write`, `pages: write`, `id-token: write`
+4. ✅ **Dynamic URL in Slack** - Now uses `https://{owner}.github.io/{repo}/` instead of hardcoded Surge URL
+
+## What You Need to Do:
+
+1. **Replace your workflow file** with the updated version above
+2. **Enable GitHub Pages** in your API repo settings:
+   - Go to Settings → Pages
+   - Source: "Deploy from a branch"
+   - Branch: `gh-pages` / `/ (root)`
+3. **Remove the Surge secret** (optional cleanup)
+
+After the next workflow run, your API reports will be at:
+```
+https://paras-kwant.github.io/kwant.ai-api-automation/
