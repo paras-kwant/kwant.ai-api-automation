@@ -134,24 +134,3 @@ jobs:
           curl -X POST -H 'Content-type: application/json' \
             --data "$PAYLOAD" \
             "$SLACK_WEBHOOK_URL"
-```
-
-## Key Changes Made:
-
-1. ✅ **Removed Surge** - No more `SURGE_TOKEN` or Surge deployment step
-2. ✅ **Added GitHub Pages deployment** - Using the same `peaceiris/actions-gh-pages@v3` action
-3. ✅ **Added required permissions** - `contents: write`, `pages: write`, `id-token: write`
-4. ✅ **Dynamic URL in Slack** - Now uses `https://{owner}.github.io/{repo}/` instead of hardcoded Surge URL
-
-## What You Need to Do:
-
-1. **Replace your workflow file** with the updated version above
-2. **Enable GitHub Pages** in your API repo settings:
-   - Go to Settings → Pages
-   - Source: "Deploy from a branch"
-   - Branch: `gh-pages` / `/ (root)`
-3. **Remove the Surge secret** (optional cleanup)
-
-After the next workflow run, your API reports will be at:
-```
-https://paras-kwant.github.io/kwant.ai-api-automation/
