@@ -1,0 +1,1 @@
+{"status":"OK","message":"Successfully retrieved 1 integrations","data":[{"id":41,"projectId":94049707,"name":"UAT test 1","description":"For UAT automation testing ","enabled":true}],"timestamp":"2026-02-14T05:15:44.116","path":"/api/open/v2/integrations"}

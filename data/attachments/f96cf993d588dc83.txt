@@ -1,0 +1,9 @@
+[
+    {
+        "integrationId": 41,
+        "recordId": 281,
+        "workerId": "",
+        "reader": "Regression test",
+        "dateTime": "2026-02-14T05:15:44.172Z"
+    }
+]

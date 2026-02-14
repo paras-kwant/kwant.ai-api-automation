@@ -1,0 +1,12 @@
+{
+    "x-auth-project": "***REDACTED***",
+    "x-auth-token": "***REDACTED***",
+    "User-Agent": "PostmanRuntime/***REDACTED***",
+    "Accept": "*/*",
+    "Cache-Control": "no-cache",
+    "postman-token": "***REDACTED***",
+    "Host": "***REDACTED***",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Content-Length": "0"
+}

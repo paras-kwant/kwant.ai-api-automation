@@ -1,0 +1,21 @@
+{
+    "Date": "Sat, 14 Feb 2026 05:15:34 GMT",
+    "Content-Type": "application/json;charset=UTF-8",
+    "Transfer-Encoding": "chunked",
+    "Connection": "keep-alive",
+    "Server": "nginx/***REDACTED***",
+    "x-content-type-options": "nosniff",
+    "x-xss-protection": "1; mode=block",
+    "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+    "pragma": "no-cache",
+    "expires": "0",
+    "x-envoy-upstream-service-time": "32",
+    "X-Frame-Options": "SAMEORIGIN",
+    "X-Content-Type-Options": "nosniff",
+    "X-XSS-Protection": "1; mode=block",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "geolocation=(), microphone=(), camera=(self), fullscreen=*",
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains; preload",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'nonce-710b47f4ce92054766d78fe2b95f446d' 'strict-dynamic' blob: https://***REDACTED*** https://***REDACTED*** https://***REDACTED*** https://***REDACTED*** https://***REDACTED*** https://*.intercom.io https://*.intercom.com; style-src 'self' 'unsafe-inline' https://***REDACTED*** https://***REDACTED***; font-src 'self' https://***REDACTED*** https://***REDACTED*** https://***REDACTED***; img-src 'self' data: https: blob:; object-src 'none'; connect-src 'self' https: wss: data: https://*.intercom.io https://*.intercom.com https://***REDACTED*** https://***REDACTED***:9001; frame-src 'self' https://***REDACTED***/ https://*.intercom.io https://*.intercom.com https://***REDACTED*** blob: https://*.***REDACTED***/ https://***REDACTED***; media-src 'self' https://*.intercomcdn.com blob:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests; block-all-mixed-content;",
+    "Content-Encoding": "gzip"
+}

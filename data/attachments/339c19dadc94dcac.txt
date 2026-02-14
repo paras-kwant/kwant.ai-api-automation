@@ -1,0 +1,1 @@
+{"status":"OK","message":"Successfully processed 1 record(s)","data":null,"timestamp":"2026-02-14T05:15:44.332","path":"/api/open/v2/rfid_access_control_events"}
