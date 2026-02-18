@@ -14,7 +14,6 @@ jobs:
       COLLECTION_UID: ${{ secrets.COLLECTION_UID }}
       POSTMAN_API_KEY: ${{ secrets.POSTMAN_API_KEY }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-      SURGE_TOKEN: ${{ secrets.SURGE_TOKEN }}
 
     permissions:
       contents: write
@@ -30,27 +29,35 @@ jobs:
         with:
           node-version: 20
 
-      - name: 📦 Install Dependencies
-        run: npm install
+      - name: 📦 Install Newman & Allure
+        run: |
+          npm install -g newman newman-reporter-json allure-commandline
 
-      - name: 📊 Install Allure CLI
-        run: npm install -g allure-commandline
-
-      - name: 🚀 Run Newman Tests & Generate JSON Report
+      - name: 🚀 Run Newman Tests
         id: newman
         continue-on-error: true
         run: |
-          # Run tests with JSON reporter
-          npm run test -- --reporters cli,json --reporter-json-export newman-report.json || true
+          echo "Running Postman Collection..."
 
-          # If JSON report exists, extract stats
+          newman run "https://api.getpostman.com/collections/$COLLECTION_UID?apikey=$POSTMAN_API_KEY" \
+            --reporters cli,json \
+            --reporter-json-export newman-report.json || true
+
+          echo "Checking files..."
+          ls -la
+
           if [ -f "newman-report.json" ]; then
+            echo "JSON report found ✅"
+
             TOTAL=$(jq '.run.stats.assertions.total' newman-report.json)
             PASSED=$(jq '.run.stats.assertions.passed' newman-report.json)
             FAILED=$(jq '.run.stats.assertions.failed' newman-report.json)
             SKIPPED=$(jq '.run.stats.assertions.skipped' newman-report.json)
-            TOTAL_TIME=$(jq -r '.run.timings.completed - .run.timings.started' newman-report.json)
+            TOTAL_TIME=$(jq '.run.timings.completed - .run.timings.started' newman-report.json)
+
           else
+            echo "JSON report NOT found ❌"
+
             TOTAL=0
             PASSED=0
             FAILED=0
@@ -58,7 +65,6 @@ jobs:
             TOTAL_TIME="N/A"
           fi
 
-          # Calculate success rate safely
           if [[ "$TOTAL" -gt 0 ]]; then
             SUCCESS_RATE=$(awk "BEGIN {printf \"%.2f\", ($PASSED/$TOTAL) * 100}")
           else
@@ -75,6 +81,15 @@ jobs:
           echo "total_time=$TOTAL_TIME ms" >> $GITHUB_OUTPUT
           echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
 
+      - name: 📊 Generate Allure Report
+        if: always()
+        run: |
+          if [ -d "allure-results" ]; then
+            allure generate allure-results --clean -o allure-report
+          else
+            echo "No allure-results directory found"
+          fi
+
       - name: 🌐 Deploy Allure Report to GitHub Pages
         if: always()
         uses: peaceiris/actions-gh-pages@v3
@@ -90,7 +105,7 @@ jobs:
         run: |
           REPO_NAME="${{ github.event.repository.name }}"
           PREVIEW_URL="https://${{ github.repository_owner }}.github.io/${REPO_NAME}/"
-          
+
           TOTAL="${{ steps.newman.outputs.total }}"
           PASSED="${{ steps.newman.outputs.passed }}"
           FAILED="${{ steps.newman.outputs.failed }}"
