@@ -34,31 +34,20 @@ jobs:
           npm install -g newman newman-reporter-allure newman-reporter-json
           npm install -g allure-commandline --allow-root
 
-      # ─── STEP 1: Pull previous Allure history from gh-pages so trend graph works ───
       - name: 📂 Restore Allure History
         run: |
           mkdir -p allure-results/history
+          git fetch origin gh-pages --depth=1 2>/dev/null || { echo "No gh-pages yet"; exit 0; }
+          for f in history-trend history categories-trend duration-trend retry-trend; do
+            git show origin/gh-pages:history/${f}.json > allure-results/history/${f}.json 2>/dev/null || true
+          done
+          echo "✅ Restored $(ls allure-results/history | wc -l) history files"
 
-          git fetch origin gh-pages --depth=1 2>/dev/null \
-            && echo "gh-pages fetched ✅" \
-            || { echo "No gh-pages branch yet — skipping"; exit 0; }
-
-          # Extract only the history folder directly from the remote ref (no checkout needed)
-          git show origin/gh-pages:history/history-trend.json      > allure-results/history/history-trend.json      2>/dev/null || true
-          git show origin/gh-pages:history/history.json             > allure-results/history/history.json             2>/dev/null || true
-          git show origin/gh-pages:history/categories-trend.json   > allure-results/history/categories-trend.json   2>/dev/null || true
-          git show origin/gh-pages:history/duration-trend.json     > allure-results/history/duration-trend.json     2>/dev/null || true
-          git show origin/gh-pages:history/retry-trend.json        > allure-results/history/retry-trend.json        2>/dev/null || true
-
-          RESTORED=$(ls allure-results/history | wc -l)
-          echo "✅ Restored $RESTORED history files into allure-results/history/"
-
-      # ─── STEP 2: Run Newman tests ───
       - name: 🚀 Run Newman Tests
         id: newman
         continue-on-error: true
         run: |
-          echo "Running Postman Collection..."
+          mkdir -p allure-results
 
           newman run "https://api.getpostman.com/collections/$COLLECTION_UID?apikey=$POSTMAN_API_KEY" \
             --reporters cli,allure,json \
@@ -66,8 +55,6 @@ jobs:
             --reporter-json-export newman-report.json || true
 
           if [ -f "newman-report.json" ]; then
-            echo "JSON report found ✅"
-
             TOTAL=$(jq '.run.stats.requests.total' newman-report.json)
             PASSED=$(jq '.run.stats.requests.total - .run.stats.requests.failed' newman-report.json)
             FAILED=$(jq '.run.stats.requests.failed' newman-report.json)
@@ -75,14 +62,16 @@ jobs:
             SKIPPED=$(jq '(.run.stats.items.total // 0) - (.run.stats.items.pending // 0) - (.run.stats.requests.total // 0)' newman-report.json 2>/dev/null || echo 0)
             SKIPPED=$(( SKIPPED < 0 ? 0 : SKIPPED ))
 
-            TOTAL_TIME_MS=$(jq '.run.timings.completed - .run.timings.started' newman-report.json)
-            if [[ "$TOTAL_TIME_MS" == "null" || "$TOTAL_TIME_MS" == "" ]]; then
-              TOTAL_TIME="N/A"
+            # Compute total time — store raw ms separately so we format it reliably
+            START_MS=$(jq '.run.timings.started'   newman-report.json)
+            END_MS=$(jq   '.run.timings.completed' newman-report.json)
+
+            if [[ "$START_MS" != "null" && "$END_MS" != "null" ]]; then
+              TOTAL_TIME=$(awk "BEGIN {printf \"%.1fs\", ($END_MS - $START_MS) / 1000}")
             else
-              TOTAL_TIME=$(awk "BEGIN {printf \"%.1fs\", $TOTAL_TIME_MS / 1000}")
+              TOTAL_TIME="N/A"
             fi
           else
-            echo "JSON report NOT found ❌"
             TOTAL=0; PASSED=0; FAILED=0; SKIPPED=0; TOTAL_TIME="N/A"
           fi
 
@@ -102,16 +91,12 @@ jobs:
           echo "total_time=$TOTAL_TIME"     >> $GITHUB_OUTPUT
           echo "timestamp=$TIMESTAMP"       >> $GITHUB_OUTPUT
 
-      # ─── STEP 3: Generate Allure HTML report (history already in allure-results/history) ───
       - name: 📊 Generate Allure Report
         if: always()
         run: |
           if [ -d "allure-results" ] && [ "$(ls -A allure-results)" ]; then
-            echo "Generating Allure report..."
             allure generate allure-results --clean -o allure-report
-            echo "✅ Report generated"
           else
-            echo "No allure-results — creating placeholder"
             mkdir -p allure-report
           fi
 
@@ -134,21 +119,14 @@ jobs:
           <body>
             <div class="card">
               <h1>kwant.ai API Automation</h1>
-              <p>The test report will appear here after the next scheduled run.</p>
+              <p>Report will appear after the next run.</p>
               <span class="badge">Waiting for first run</span>
             </div>
           </body>
           </html>
           HTMLEOF
-            echo "Placeholder created ✅"
           fi
 
-          echo "allure-report contents:"
-          ls -la allure-report/
-          echo "allure-report/history contents:"
-          ls -la allure-report/history/ 2>/dev/null || echo "(no history folder)"
-
-      # ─── STEP 4: Deploy report to gh-pages ───
       - name: 🌐 Deploy to GitHub Pages
         if: always()
         uses: peaceiris/actions-gh-pages@v3
@@ -160,40 +138,27 @@ jobs:
           user_email: 'github-actions[bot]@users.noreply.github.com'
           commit_message: 'deploy: allure report [${{ steps.newman.outputs.timestamp }}]'
 
-      # ─── STEP 5: Persist /history at root of gh-pages for next run to restore ───
-      # Uses git show (no checkout) to avoid the "local changes overwritten" error
       - name: 📁 Persist Trend History on gh-pages
         if: always()
         run: |
           if [ ! -d "allure-report/history" ]; then
-            echo "No history folder to persist — skipping"
-            exit 0
+            echo "No history to persist"; exit 0
           fi
-
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          # Fetch the freshly deployed gh-pages
           git fetch origin gh-pages
-
-          # Create a temp worktree — avoids any local file conflicts entirely
           git worktree add /tmp/gh-pages-wt origin/gh-pages
-
-          # Overwrite the history folder in the worktree
           rm -rf /tmp/gh-pages-wt/history
           cp -r allure-report/history /tmp/gh-pages-wt/history
-
           cd /tmp/gh-pages-wt
           git add history/
           if git diff --cached --quiet; then
-            echo "History unchanged — nothing to commit"
+            echo "No history changes"
           else
             git commit -m "chore: persist trend history [skip ci]"
             git push origin HEAD:gh-pages
-            echo "✅ Trend history pushed to gh-pages root"
+            echo "✅ History pushed"
           fi
-
-          # Clean up worktree
           cd $GITHUB_WORKSPACE
           git worktree remove /tmp/gh-pages-wt --force
 
@@ -212,19 +177,19 @@ jobs:
           TIMESTAMP="${{ steps.newman.outputs.timestamp }}"
 
           if [[ "$FAILED" -eq 0 && "$TOTAL" -gt 0 ]]; then
-            HEADER="✅  API tests completed successfully"
+            STATUS_LINE=":white_check_mark: *API tests completed successfully*"
             COLOR="#2eb886"
           elif [[ "$TOTAL" -eq 0 ]]; then
-            HEADER="⚠️  API tests did not run properly"
+            STATUS_LINE=":warning: *API tests did not run properly*"
             COLOR="#daa038"
           else
-            HEADER="🚨  PROD Health Check — ${FAILED} test(s) failed"
+            STATUS_LINE=":rotating_light: *PROD Health Check — ${FAILED} test(s) failed*"
             COLOR="#cc3232"
           fi
 
           PAYLOAD=$(jq -n \
             --arg color   "$COLOR" \
-            --arg header  "$HEADER" \
+            --arg status  "$STATUS_LINE" \
             --arg total   "$TOTAL" \
             --arg passed  "$PASSED" \
             --arg failed  "$FAILED" \
@@ -238,26 +203,24 @@ jobs:
                 color: $color,
                 blocks: [
                   {
-                    type: "header",
-                    text: { type: "plain_text", text: $header, emoji: true }
+                    type: "section",
+                    text: { type: "mrkdwn", text: $status }
                   },
-                  { type: "divider" },
                   {
                     type: "section",
                     fields: [
-                      { type: "mrkdwn", text: "*Total Tests*\n:bar_chart:  \($total)" },
-                      { type: "mrkdwn", text: "*Passed*\n:white_check_mark:  \($passed)" },
-                      { type: "mrkdwn", text: "*Failed*\n:x:  \($failed)" },
-                      { type: "mrkdwn", text: "*Skipped*\n:next_track_button:  \($skipped)" },
-                      { type: "mrkdwn", text: "*Success Rate*\n:chart_with_upwards_trend:  \($rate)" },
-                      { type: "mrkdwn", text: "*Total Time*\n:stopwatch:  \($time)" }
+                      { type: "mrkdwn", text: "*Total Tests*\n\($total)" },
+                      { type: "mrkdwn", text: ":white_check_mark: *Passed*\n\($passed)" },
+                      { type: "mrkdwn", text: ":x: *Failed*\n\($failed)" },
+                      { type: "mrkdwn", text: ":fast_forward: *Skipped*\n\($skipped)" },
+                      { type: "mrkdwn", text: ":chart_with_upwards_trend: *Success Rate*\n\($rate)" },
+                      { type: "mrkdwn", text: ":hourglass_flowing_sand: *Total Time*\n\($time)" }
                     ]
                   },
-                  { type: "divider" },
                   {
-                    type: "context",
-                    elements: [
-                      { type: "mrkdwn", text: ":clock1:  Last Checked: \($ts)" }
+                    type: "section",
+                    fields: [
+                      { type: "mrkdwn", text: ":clock1: *Last Checked*\n\($ts)" }
                     ]
                   },
                   {
@@ -265,7 +228,7 @@ jobs:
                     elements: [
                       {
                         type: "button",
-                        text: { type: "plain_text", text: "View Detailed Report :arrow_upper_right:", emoji: true },
+                        text: { type: "plain_text", text: "View Detailed Report", emoji: false },
                         url: $url,
                         style: "primary"
                       }
