@@ -1,4 +1,4 @@
-name: kwant-api-automation
+name: kwant-api-automation run
 
 on:
   schedule:
@@ -53,7 +53,6 @@ jobs:
             PASSED=$(jq '.run.stats.assertions.passed' newman-report.json)
             FAILED=$(jq '.run.stats.assertions.failed' newman-report.json)
             SKIPPED=$(jq '.run.stats.assertions.skipped' newman-report.json)
-            TOTAL_TIME=$(jq '.run.timings.completed - .run.timings.started' newman-report.json)
 
           else
             echo "JSON report NOT found ❌"
