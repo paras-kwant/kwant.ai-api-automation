@@ -136,10 +136,10 @@ jobs:
           user_email: 'github-actions[bot]@users.noreply.github.com'
           commit_message: 'deploy: allure report [${{ steps.newman.outputs.timestamp }}]'
 
-      - name: 📁 Persist Trend History on gh-pages (STRICT LAST 5)
-        if: always()
-        run: |
-            if [ ! -d "allure-report/history" ]; then
+          - name: 📁 Persist Trend History (STRICT LAST 5 RUNS FIX)
+          if: always()
+          run: |
+            if [ ! -d "allure-results/history" ]; then
               echo "No history to persist"; exit 0
             fi
   
@@ -150,24 +150,25 @@ jobs:
             git worktree add /tmp/gh-pages-wt origin/gh-pages
   
             mkdir -p /tmp/gh-pages-wt/history
-            cp -r allure-report/history/* /tmp/gh-pages-wt/history/ 2>/dev/null || true
+  
+            # copy fresh history
+            cp -r allure-results/history/* /tmp/gh-pages-wt/history/ 2>/dev/null || true
   
             cd /tmp/gh-pages-wt/history
   
-            # ✅ STRICT: keep only last 5 most recent files
-            # (sort by modification time, keep newest 5)
-            FILES=$(ls -1t)
+            echo "🔧 Trimming Allure trend JSON to last 5 runs..."
   
-            COUNT=0
-            echo "$FILES" | while read file; do
-              COUNT=$((COUNT+1))
-              if [ $COUNT -gt 5 ]; then
-                rm -rf "$file"
+            for file in history-trend.json categories-trend.json duration-trend.json retry-trend.json; do
+              if [ -f "$file" ]; then
+                echo "Processing $file"
+  
+                # detect array and trim last 5 entries
+                jq 'if type=="array" then .[-5:] else . end' "$file" > tmp.json && mv tmp.json "$file"
               fi
             done
   
-            echo "📊 Final history (should be 5 max):"
-            ls -1
+            echo "📊 Final trend state:"
+            ls -la
   
             cd /tmp/gh-pages-wt
             git add history/
@@ -175,9 +176,9 @@ jobs:
             if git diff --cached --quiet; then
               echo "No history changes"
             else
-              git commit -m "chore: enforce strict last 5 trend history [skip ci]"
+              git commit -m "chore: enforce strict last 5 Allure trend runs [skip ci]"
               git push origin HEAD:gh-pages
-              echo "✅ Strict 5-history enforced"
+              echo "✅ Trend fixed (true last 5 runs)"
             fi
   
             cd $GITHUB_WORKSPACE
