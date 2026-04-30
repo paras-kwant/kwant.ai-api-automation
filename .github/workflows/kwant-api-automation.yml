@@ -136,9 +136,9 @@ jobs:
           user_email: 'github-actions[bot]@users.noreply.github.com'
           commit_message: 'deploy: allure report [${{ steps.newman.outputs.timestamp }}]'
 
-          - name: 📁 Persist Trend History (STRICT LAST 5 RUNS FIX)
-          if: always()
-          run: |
+      - name: 📁 Persist Trend History (STRICT LAST 5 RUNS FIX)
+        if: always()
+        run: |
             if [ ! -d "allure-results/history" ]; then
               echo "No history to persist"; exit 0
             fi
