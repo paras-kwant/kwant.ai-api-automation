@@ -188,20 +188,20 @@ jobs:
             COLOR="#cc3232"
           fi
 
-          # unfurl_links/unfurl_media false stops the "preview not available" box
           PAYLOAD=$(jq -n \
-            --arg color   "$COLOR" \
-            --arg emoji   "$STATUS_EMOJI" \
-            --arg status  "$STATUS_TEXT" \
-            --arg total   "$TOTAL" \
-            --arg passed  "$PASSED" \
-            --arg failed  "$FAILED" \
+            --arg color "$COLOR" \
+            --arg emoji "$STATUS_EMOJI" \
+            --arg status "$STATUS_TEXT" \
+            --arg total "$TOTAL" \
+            --arg passed "$PASSED" \
+            --arg failed "$FAILED" \
             --arg skipped "$SKIPPED" \
-            --arg rate    "$SUCCESS_RATE%" \
-            --arg time    "$TOTAL_TIME" \
-            --arg ts      "$TIMESTAMP" \
-            --arg url     "$REPORT_URL" \
+            --arg rate "$SUCCESS_RATE%" \
+            --arg time "$TOTAL_TIME" \
+            --arg ts "$TIMESTAMP" \
+            --arg url "$REPORT_URL" \
             '{
+              text: "\($emoji) \($status)",
               unfurl_links: false,
               unfurl_media: false,
               attachments: [{
@@ -236,7 +236,7 @@ jobs:
                     elements: [
                       {
                         type: "button",
-                        text: { type: "plain_text", text: "View Detailed Report", emoji: false },
+                        text: { type: "plain_text", text: "View Detailed Report" },
                         url: $url,
                         style: "primary"
                       }
