@@ -31,7 +31,8 @@ jobs:
 
       - name: 📦 Install Newman & Allure
         run: |
-          npm install -g newman newman-reporter-json allure-commandline
+          npm install -g newman newman-reporter-allure newman-reporter-json
+          npm install -g allure-commandline --allow-root
 
       - name: 🚀 Run Newman Tests
         id: newman
@@ -39,24 +40,26 @@ jobs:
         run: |
           echo "Running Postman Collection..."
 
+          mkdir -p allure-results
+
           newman run "https://api.getpostman.com/collections/$COLLECTION_UID?apikey=$POSTMAN_API_KEY" \
-            --reporters cli,json \
+            --reporters cli,allure,json \
+            --reporter-allure-export allure-results \
             --reporter-json-export newman-report.json || true
 
           echo "Checking files..."
           ls -la
+          ls -la allure-results || echo "allure-results is empty"
 
           if [ -f "newman-report.json" ]; then
             echo "JSON report found ✅"
-
             TOTAL=$(jq '.run.stats.assertions.total' newman-report.json)
             PASSED=$(jq '.run.stats.assertions.passed' newman-report.json)
             FAILED=$(jq '.run.stats.assertions.failed' newman-report.json)
             SKIPPED=$(jq '.run.stats.assertions.skipped' newman-report.json)
-
+            TOTAL_TIME=$(jq '.run.timings.completed - .run.timings.started' newman-report.json)
           else
             echo "JSON report NOT found ❌"
-
             TOTAL=0
             PASSED=0
             FAILED=0
@@ -72,27 +75,58 @@ jobs:
 
           TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
 
-          echo "total=$TOTAL" >> $GITHUB_OUTPUT
-          echo "passed=$PASSED" >> $GITHUB_OUTPUT
-          echo "failed=$FAILED" >> $GITHUB_OUTPUT
-          echo "skipped=$SKIPPED" >> $GITHUB_OUTPUT
+          echo "total=$TOTAL"              >> $GITHUB_OUTPUT
+          echo "passed=$PASSED"            >> $GITHUB_OUTPUT
+          echo "failed=$FAILED"            >> $GITHUB_OUTPUT
+          echo "skipped=$SKIPPED"          >> $GITHUB_OUTPUT
           echo "success_rate=$SUCCESS_RATE" >> $GITHUB_OUTPUT
-          echo "total_time=$TOTAL_TIME ms" >> $GITHUB_OUTPUT
-          echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
+          echo "total_time=$TOTAL_TIME ms"  >> $GITHUB_OUTPUT
+          echo "timestamp=$TIMESTAMP"      >> $GITHUB_OUTPUT
 
       - name: 📊 Generate Allure Report
         if: always()
         run: |
-          if [ -d "allure-results" ]; then
+          if [ -d "allure-results" ] && [ "$(ls -A allure-results)" ]; then
+            echo "Generating Allure report from results..."
             allure generate allure-results --clean -o allure-report
           else
-            # FIX: Create a minimal placeholder so gh-pages deploy doesn't fail
+            echo "No allure-results found — creating placeholder"
             mkdir -p allure-report
-            echo "<html><body><h2>No test results found for this run.</h2></body></html>" > allure-report/index.html
-            echo "No allure-results directory found — placeholder created"
           fi
 
-      - name: 🌐 Deploy Allure Report to GitHub Pages
+          # Always guarantee a valid index.html at root
+          if [ ! -f "allure-report/index.html" ]; then
+            cat > allure-report/index.html << 'HTMLEOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>kwant.ai API Test Report</title>
+            <style>
+              body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d1117;color:#c9d1d9;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+              .card{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:48px;text-align:center;max-width:480px}
+              h1{color:#f0f6fc;font-size:24px;margin:0 0 12px}
+              p{color:#8b949e;margin:0 0 24px;line-height:1.6}
+              .badge{display:inline-block;background:#21262d;border:1px solid #30363d;border-radius:6px;padding:4px 12px;font-size:13px;color:#8b949e}
+            </style>
+          </head>
+          <body>
+            <div class="card">
+              <h1>kwant.ai API Automation</h1>
+              <p>The test report will appear here after the next scheduled run completes successfully.</p>
+              <span class="badge">Waiting for first run</span>
+            </div>
+          </body>
+          </html>
+          HTMLEOF
+            echo "Placeholder index.html created ✅"
+          fi
+
+          echo "Final allure-report contents:"
+          ls -la allure-report/
+
+      - name: 🌐 Deploy to GitHub Pages
         if: always()
         uses: peaceiris/actions-gh-pages@v3
         with:
@@ -139,28 +173,24 @@ jobs:
             --arg timestamp "$TIMESTAMP" \
             --arg preview_url "$PREVIEW_URL" \
             '{
-              attachments: [
-                {
-                  color: $color,
-                  title: $status,
-                  fields: [
-                    {title: "Total Assertions", value: $total, short: true},
-                    {title: "✅ Passed", value: $passed, short: true},
-                    {title: "❌ Failed", value: $failed, short: true},
-                    {title: "⏭️ Skipped", value: $skipped, short: true},
-                    {title: "📈 Success Rate", value: $success_rate, short: true},
-                    {title: "⏳ Total Time", value: $total_time, short: true},
-                    {title: "🕐 Last Checked", value: $timestamp, short: false}
-                  ],
-                  actions: [
-                    {
-                      type: "button",
-                      text: "View Detailed Report",
-                      url: $preview_url
-                    }
-                  ]
-                }
-              ]
+              attachments: [{
+                color: $color,
+                title: $status,
+                fields: [
+                  {title: "Total Assertions", value: $total,        short: true},
+                  {title: "✅ Passed",         value: $passed,       short: true},
+                  {title: "❌ Failed",          value: $failed,       short: true},
+                  {title: "⏭️ Skipped",         value: $skipped,      short: true},
+                  {title: "📈 Success Rate",    value: $success_rate, short: true},
+                  {title: "⏳ Total Time",      value: $total_time,   short: true},
+                  {title: "🕐 Last Checked",    value: $timestamp,    short: false}
+                ],
+                actions: [{
+                  type: "button",
+                  text: "View Detailed Report",
+                  url: $preview_url
+                }]
+              }]
             }')
 
           curl -X POST -H 'Content-type: application/json' \
