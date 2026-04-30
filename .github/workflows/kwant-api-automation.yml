@@ -138,7 +138,7 @@ jobs:
 
       - name: 📁 Persist Trend History on gh-pages (STRICT LAST 5)
         if: always()
-          run: |
+        run: |
             if [ ! -d "allure-report/history" ]; then
               echo "No history to persist"; exit 0
             fi
