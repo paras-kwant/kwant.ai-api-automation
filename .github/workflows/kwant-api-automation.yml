@@ -34,39 +34,36 @@ jobs:
           npm install -g newman newman-reporter-allure newman-reporter-json
           npm install -g allure-commandline --allow-root
 
-      # ─── TREND FIX: pull previous history from gh-pages before generating ───
-      - name: 📂 Restore Allure History from gh-pages
+      # ─── STEP 1: Pull previous Allure history from gh-pages so trend graph works ───
+      - name: 📂 Restore Allure History
         run: |
           mkdir -p allure-results/history
 
-          # Try to fetch the history folder from the previously deployed gh-pages branch
-          git fetch origin gh-pages --depth=1 2>/dev/null || echo "No gh-pages branch yet — skipping history restore"
+          git fetch origin gh-pages --depth=1 2>/dev/null \
+            && echo "gh-pages fetched ✅" \
+            || { echo "No gh-pages branch yet — skipping"; exit 0; }
 
-          if git show-ref --verify --quiet refs/remotes/origin/gh-pages; then
-            git checkout origin/gh-pages -- history 2>/dev/null || echo "No history folder on gh-pages yet"
-            if [ -d "history" ]; then
-              cp -r history/. allure-results/history/
-              echo "✅ Restored $(ls allure-results/history | wc -l) history files"
-            else
-              echo "ℹ️ No history to restore on this run"
-            fi
-          fi
+          # Extract only the history folder directly from the remote ref (no checkout needed)
+          git show origin/gh-pages:history/history-trend.json      > allure-results/history/history-trend.json      2>/dev/null || true
+          git show origin/gh-pages:history/history.json             > allure-results/history/history.json             2>/dev/null || true
+          git show origin/gh-pages:history/categories-trend.json   > allure-results/history/categories-trend.json   2>/dev/null || true
+          git show origin/gh-pages:history/duration-trend.json     > allure-results/history/duration-trend.json     2>/dev/null || true
+          git show origin/gh-pages:history/retry-trend.json        > allure-results/history/retry-trend.json        2>/dev/null || true
 
+          RESTORED=$(ls allure-results/history | wc -l)
+          echo "✅ Restored $RESTORED history files into allure-results/history/"
+
+      # ─── STEP 2: Run Newman tests ───
       - name: 🚀 Run Newman Tests
         id: newman
         continue-on-error: true
         run: |
           echo "Running Postman Collection..."
-          mkdir -p allure-results
 
           newman run "https://api.getpostman.com/collections/$COLLECTION_UID?apikey=$POSTMAN_API_KEY" \
             --reporters cli,allure,json \
             --reporter-allure-export allure-results \
             --reporter-json-export newman-report.json || true
-
-          echo "Files after newman run:"
-          ls -la
-          ls -la allure-results || echo "allure-results is empty"
 
           if [ -f "newman-report.json" ]; then
             echo "JSON report found ✅"
@@ -75,17 +72,15 @@ jobs:
             PASSED=$(jq '.run.stats.requests.total - .run.stats.requests.failed' newman-report.json)
             FAILED=$(jq '.run.stats.requests.failed' newman-report.json)
 
-            SKIPPED=$(jq '.run.stats.items.total - .run.stats.items.pending - .run.stats.requests.total' newman-report.json 2>/dev/null || echo 0)
+            SKIPPED=$(jq '(.run.stats.items.total // 0) - (.run.stats.items.pending // 0) - (.run.stats.requests.total // 0)' newman-report.json 2>/dev/null || echo 0)
             SKIPPED=$(( SKIPPED < 0 ? 0 : SKIPPED ))
 
             TOTAL_TIME_MS=$(jq '.run.timings.completed - .run.timings.started' newman-report.json)
             if [[ "$TOTAL_TIME_MS" == "null" || "$TOTAL_TIME_MS" == "" ]]; then
               TOTAL_TIME="N/A"
             else
-              SECS=$(awk "BEGIN {printf \"%.1f\", $TOTAL_TIME_MS / 1000}")
-              TOTAL_TIME="${SECS}s"
+              TOTAL_TIME=$(awk "BEGIN {printf \"%.1fs\", $TOTAL_TIME_MS / 1000}")
             fi
-
           else
             echo "JSON report NOT found ❌"
             TOTAL=0; PASSED=0; FAILED=0; SKIPPED=0; TOTAL_TIME="N/A"
@@ -107,14 +102,16 @@ jobs:
           echo "total_time=$TOTAL_TIME"     >> $GITHUB_OUTPUT
           echo "timestamp=$TIMESTAMP"       >> $GITHUB_OUTPUT
 
+      # ─── STEP 3: Generate Allure HTML report (history already in allure-results/history) ───
       - name: 📊 Generate Allure Report
         if: always()
         run: |
           if [ -d "allure-results" ] && [ "$(ls -A allure-results)" ]; then
             echo "Generating Allure report..."
             allure generate allure-results --clean -o allure-report
+            echo "✅ Report generated"
           else
-            echo "No allure-results found — creating placeholder"
+            echo "No allure-results — creating placeholder"
             mkdir -p allure-report
           fi
 
@@ -137,63 +134,68 @@ jobs:
           <body>
             <div class="card">
               <h1>kwant.ai API Automation</h1>
-              <p>The test report will appear here after the next scheduled run completes successfully.</p>
+              <p>The test report will appear here after the next scheduled run.</p>
               <span class="badge">Waiting for first run</span>
             </div>
           </body>
           </html>
           HTMLEOF
-            echo "Placeholder index.html created ✅"
+            echo "Placeholder created ✅"
           fi
 
-          # ─── Copy history out so gh-pages root contains a /history folder ───
-          # This lets the next run restore it via: git checkout origin/gh-pages -- history
-          if [ -d "allure-report/history" ]; then
-            cp -r allure-report/history ./history
-            echo "✅ Copied history to repo root for next run"
-          fi
-
-          echo "Final allure-report contents:"
+          echo "allure-report contents:"
           ls -la allure-report/
+          echo "allure-report/history contents:"
+          ls -la allure-report/history/ 2>/dev/null || echo "(no history folder)"
 
+      # ─── STEP 4: Deploy report to gh-pages ───
       - name: 🌐 Deploy to GitHub Pages
         if: always()
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./allure-report
-          # ─── Also publish the /history folder at root so we can restore it ───
-          keep_files: false
           force_orphan: true
           user_name: 'github-actions[bot]'
           user_email: 'github-actions[bot]@users.noreply.github.com'
-          # Commit the /history folder alongside the report
-          # We add it manually in the next step instead
+          commit_message: 'deploy: allure report [${{ steps.newman.outputs.timestamp }}]'
 
-      # ─── TREND FIX pt2: push /history folder into gh-pages branch root ───
-      - name: 📁 Persist History on gh-pages Branch
+      # ─── STEP 5: Persist /history at root of gh-pages for next run to restore ───
+      # Uses git show (no checkout) to avoid the "local changes overwritten" error
+      - name: 📁 Persist Trend History on gh-pages
         if: always()
         run: |
           if [ ! -d "allure-report/history" ]; then
-            echo "No history to persist"
+            echo "No history folder to persist — skipping"
             exit 0
           fi
 
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Switch to gh-pages and add history folder
+          # Fetch the freshly deployed gh-pages
           git fetch origin gh-pages
-          git checkout gh-pages
 
-          # Copy the history folder to the root of gh-pages
-          rm -rf history
-          cp -r allure-report/history ./history 2>/dev/null || cp -r history ./history
+          # Create a temp worktree — avoids any local file conflicts entirely
+          git worktree add /tmp/gh-pages-wt origin/gh-pages
 
+          # Overwrite the history folder in the worktree
+          rm -rf /tmp/gh-pages-wt/history
+          cp -r allure-report/history /tmp/gh-pages-wt/history
+
+          cd /tmp/gh-pages-wt
           git add history/
-          git diff --cached --quiet && echo "No history changes" || git commit -m "chore: update allure trend history [skip ci]"
-          git push origin gh-pages
-          echo "✅ Trend history persisted on gh-pages"
+          if git diff --cached --quiet; then
+            echo "History unchanged — nothing to commit"
+          else
+            git commit -m "chore: persist trend history [skip ci]"
+            git push origin HEAD:gh-pages
+            echo "✅ Trend history pushed to gh-pages root"
+          fi
+
+          # Clean up worktree
+          cd $GITHUB_WORKSPACE
+          git worktree remove /tmp/gh-pages-wt --force
 
       - name: 💬 Send Slack Notification
         if: always()
