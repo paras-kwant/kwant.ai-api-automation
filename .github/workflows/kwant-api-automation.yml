@@ -136,29 +136,43 @@ jobs:
           user_email: 'github-actions[bot]@users.noreply.github.com'
           commit_message: 'deploy: allure report [${{ steps.newman.outputs.timestamp }}]'
 
-      - name: 📁 Persist Trend History on gh-pages
+      - name: 📁 Persist Trend History on gh-pages (KEEP LAST 5)
         if: always()
         run: |
-          if [ ! -d "allure-report/history" ]; then
-            echo "No history to persist"; exit 0
-          fi
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch origin gh-pages
-          git worktree add /tmp/gh-pages-wt origin/gh-pages
-          rm -rf /tmp/gh-pages-wt/history
-          cp -r allure-report/history /tmp/gh-pages-wt/history
-          cd /tmp/gh-pages-wt
-          git add history/
-          if git diff --cached --quiet; then
-            echo "No history changes"
-          else
-            git commit -m "chore: persist trend history [skip ci]"
-            git push origin HEAD:gh-pages
-            echo "✅ History pushed"
-          fi
-          cd $GITHUB_WORKSPACE
-          git worktree remove /tmp/gh-pages-wt --force
+            if [ ! -d "allure-report/history" ]; then
+              echo "No history to persist"; exit 0
+            fi
+  
+            git config user.name  "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+  
+            git fetch origin gh-pages
+            git worktree add /tmp/gh-pages-wt origin/gh-pages
+  
+            mkdir -p /tmp/gh-pages-wt/history
+            cp -r allure-report/history/* /tmp/gh-pages-wt/history/ 2>/dev/null || true
+  
+            cd /tmp/gh-pages-wt/history
+  
+            # ✅ KEEP ONLY LATEST 5 FILES (by modification time)
+            ls -1t | tail -n +6 | xargs -r rm -rf
+  
+            echo "📊 Remaining history files:"
+            ls -1
+  
+            cd /tmp/gh-pages-wt
+            git add history/
+  
+            if git diff --cached --quiet; then
+              echo "No history changes"
+            else
+              git commit -m "chore: keep only latest 5 trend history [skip ci]"
+              git push origin HEAD:gh-pages
+              echo "✅ History trimmed and pushed"
+            fi
+  
+            cd $GITHUB_WORKSPACE
+            git worktree remove /tmp/gh-pages-wt --force
 
       - name: 💬 Send Slack Notification
         if: always()
