@@ -39,7 +39,6 @@ jobs:
         continue-on-error: true
         run: |
           echo "Running Postman Collection..."
-
           mkdir -p allure-results
 
           newman run "https://api.getpostman.com/collections/$COLLECTION_UID?apikey=$POSTMAN_API_KEY" \
@@ -53,11 +52,27 @@ jobs:
 
           if [ -f "newman-report.json" ]; then
             echo "JSON report found ✅"
-            TOTAL=$(jq '.run.stats.assertions.total' newman-report.json)
-            PASSED=$(jq '.run.stats.assertions.passed' newman-report.json)
-            FAILED=$(jq '.run.stats.assertions.failed' newman-report.json)
-            SKIPPED=$(jq '.run.stats.assertions.skipped' newman-report.json)
-            TOTAL_TIME=$(jq '.run.timings.completed - .run.timings.started' newman-report.json)
+
+            # --- Request-level counts (Total APIs tested) ---
+            TOTAL=$(jq '.run.stats.requests.total'    newman-report.json)
+            PASSED=$(jq '.run.stats.requests.total - .run.stats.requests.failed' newman-report.json)
+            FAILED=$(jq '.run.stats.requests.failed'  newman-report.json)
+
+            # Skipped = items that were never executed (pending items)
+            SKIPPED=$(jq '.run.stats.items.total - .run.stats.items.pending - .run.stats.requests.total' newman-report.json 2>/dev/null || echo 0)
+            # Clamp to 0 if negative
+            SKIPPED=$(( SKIPPED < 0 ? 0 : SKIPPED ))
+
+            # Total elapsed time in ms
+            TOTAL_TIME_MS=$(jq '.run.timings.completed - .run.timings.started' newman-report.json)
+            # Convert ms → human readable (e.g. "3.2s" or "1m 2s")
+            if [[ "$TOTAL_TIME_MS" == "null" || "$TOTAL_TIME_MS" == "" ]]; then
+              TOTAL_TIME="N/A"
+            else
+              SECS=$(awk "BEGIN {printf \"%.1f\", $TOTAL_TIME_MS / 1000}")
+              TOTAL_TIME="${SECS}s"
+            fi
+
           else
             echo "JSON report NOT found ❌"
             TOTAL=0
@@ -70,18 +85,18 @@ jobs:
           if [[ "$TOTAL" -gt 0 ]]; then
             SUCCESS_RATE=$(awk "BEGIN {printf \"%.2f\", ($PASSED/$TOTAL) * 100}")
           else
-            SUCCESS_RATE=0
+            SUCCESS_RATE="0.00"
           fi
 
           TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
 
-          echo "total=$TOTAL"              >> $GITHUB_OUTPUT
-          echo "passed=$PASSED"            >> $GITHUB_OUTPUT
-          echo "failed=$FAILED"            >> $GITHUB_OUTPUT
-          echo "skipped=$SKIPPED"          >> $GITHUB_OUTPUT
+          echo "total=$TOTAL"               >> $GITHUB_OUTPUT
+          echo "passed=$PASSED"             >> $GITHUB_OUTPUT
+          echo "failed=$FAILED"             >> $GITHUB_OUTPUT
+          echo "skipped=$SKIPPED"           >> $GITHUB_OUTPUT
           echo "success_rate=$SUCCESS_RATE" >> $GITHUB_OUTPUT
-          echo "total_time=$TOTAL_TIME ms"  >> $GITHUB_OUTPUT
-          echo "timestamp=$TIMESTAMP"      >> $GITHUB_OUTPUT
+          echo "total_time=$TOTAL_TIME"     >> $GITHUB_OUTPUT
+          echo "timestamp=$TIMESTAMP"       >> $GITHUB_OUTPUT
 
       - name: 📊 Generate Allure Report
         if: always()
@@ -94,7 +109,6 @@ jobs:
             mkdir -p allure-report
           fi
 
-          # Always guarantee a valid index.html at root
           if [ ! -f "allure-report/index.html" ]; then
             cat > allure-report/index.html << 'HTMLEOF'
           <!DOCTYPE html>
@@ -140,7 +154,7 @@ jobs:
         if: always()
         run: |
           REPO_NAME="${{ github.event.repository.name }}"
-          PREVIEW_URL="https://${{ github.repository_owner }}.github.io/${REPO_NAME}/"
+          REPORT_URL="https://${{ github.repository_owner }}.github.io/${REPO_NAME}/"
 
           TOTAL="${{ steps.newman.outputs.total }}"
           PASSED="${{ steps.newman.outputs.passed }}"
@@ -151,48 +165,80 @@ jobs:
           TIMESTAMP="${{ steps.newman.outputs.timestamp }}"
 
           if [[ "$FAILED" -eq 0 && "$TOTAL" -gt 0 ]]; then
-            STATUS="✅ API tests completed successfully"
-            COLOR="good"
+            STATUS_EMOJI="✅"
+            STATUS_TEXT="API tests completed successfully"
+            COLOR="#2eb886"
           elif [[ "$TOTAL" -eq 0 ]]; then
-            STATUS="⚠️ API tests did not run properly"
-            COLOR="warning"
+            STATUS_EMOJI="⚠️"
+            STATUS_TEXT="API tests did not run properly"
+            COLOR="#daa038"
           else
-            STATUS="🚨 PROD Health Check tests failed"
-            COLOR="danger"
+            STATUS_EMOJI="🚨"
+            STATUS_TEXT="PROD Health Check tests failed"
+            COLOR="#cc3232"
           fi
 
+          # Build Slack Block Kit payload — rich card layout matching the dashboard style
           PAYLOAD=$(jq -n \
-            --arg color "$COLOR" \
-            --arg status "$STATUS" \
-            --arg total "$TOTAL" \
-            --arg passed "$PASSED" \
-            --arg failed "$FAILED" \
-            --arg skipped "$SKIPPED" \
-            --arg success_rate "$SUCCESS_RATE%" \
-            --arg total_time "$TOTAL_TIME" \
-            --arg timestamp "$TIMESTAMP" \
-            --arg preview_url "$PREVIEW_URL" \
+            --arg color        "$COLOR" \
+            --arg status_emoji "$STATUS_EMOJI" \
+            --arg status_text  "$STATUS_TEXT" \
+            --arg total        "$TOTAL" \
+            --arg passed       "$PASSED" \
+            --arg failed       "$FAILED" \
+            --arg skipped      "$SKIPPED" \
+            --arg rate         "$SUCCESS_RATE%" \
+            --arg time         "$TOTAL_TIME" \
+            --arg ts           "$TIMESTAMP" \
+            --arg url          "$REPORT_URL" \
             '{
               attachments: [{
                 color: $color,
-                title: $status,
-                fields: [
-                  {title: "Total Assertions", value: $total,        short: true},
-                  {title: "✅ Passed",         value: $passed,       short: true},
-                  {title: "❌ Failed",          value: $failed,       short: true},
-                  {title: "⏭️ Skipped",         value: $skipped,      short: true},
-                  {title: "📈 Success Rate",    value: $success_rate, short: true},
-                  {title: "⏳ Total Time",      value: $total_time,   short: true},
-                  {title: "🕐 Last Checked",    value: $timestamp,    short: false}
-                ],
-                actions: [{
-                  type: "button",
-                  text: "View Detailed Report",
-                  url: $preview_url
-                }]
+                blocks: [
+                  {
+                    type: "header",
+                    text: {
+                      type: "plain_text",
+                      text: "\($status_emoji) \($status_text)",
+                      emoji: true
+                    }
+                  },
+                  {
+                    type: "divider"
+                  },
+                  {
+                    type: "section",
+                    fields: [
+                      { type: "mrkdwn", text: "*Total Tests*\n\($total)" },
+                      { type: "mrkdwn", text: "*✅ Passed*\n\($passed)" },
+                      { type: "mrkdwn", text: "*❌ Failed*\n\($failed)" },
+                      { type: "mrkdwn", text: "*⏭️ Skipped*\n\($skipped)" },
+                      { type: "mrkdwn", text: "*📈 Success Rate*\n\($rate)" },
+                      { type: "mrkdwn", text: "*⏳ Total Time*\n\($time)" }
+                    ]
+                  },
+                  {
+                    type: "context",
+                    elements: [
+                      { type: "mrkdwn", text: "🕐 Last Checked: \($ts)" }
+                    ]
+                  },
+                  {
+                    type: "actions",
+                    elements: [
+                      {
+                        type: "button",
+                        text: { type: "plain_text", text: "View Detailed Report", emoji: true },
+                        url: $url,
+                        style: "primary"
+                      }
+                    ]
+                  }
+                ]
               }]
             }')
 
-          curl -X POST -H 'Content-type: application/json' \
+          curl -s -X POST \
+            -H 'Content-type: application/json' \
             --data "$PAYLOAD" \
             "$SLACK_WEBHOOK_URL"
