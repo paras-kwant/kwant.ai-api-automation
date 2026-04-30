@@ -62,10 +62,8 @@ jobs:
             SKIPPED=$(jq '(.run.stats.items.total // 0) - (.run.stats.items.pending // 0) - (.run.stats.requests.total // 0)' newman-report.json 2>/dev/null || echo 0)
             SKIPPED=$(( SKIPPED < 0 ? 0 : SKIPPED ))
 
-            # Compute total time — store raw ms separately so we format it reliably
             START_MS=$(jq '.run.timings.started'   newman-report.json)
             END_MS=$(jq   '.run.timings.completed' newman-report.json)
-
             if [[ "$START_MS" != "null" && "$END_MS" != "null" ]]; then
               TOTAL_TIME=$(awk "BEGIN {printf \"%.1fs\", ($END_MS - $START_MS) / 1000}")
             else
@@ -177,19 +175,24 @@ jobs:
           TIMESTAMP="${{ steps.newman.outputs.timestamp }}"
 
           if [[ "$FAILED" -eq 0 && "$TOTAL" -gt 0 ]]; then
-            STATUS_LINE=":white_check_mark: *API tests completed successfully*"
+            STATUS_EMOJI=":white_check_mark:"
+            STATUS_TEXT="API tests completed successfully"
             COLOR="#2eb886"
           elif [[ "$TOTAL" -eq 0 ]]; then
-            STATUS_LINE=":warning: *API tests did not run properly*"
+            STATUS_EMOJI=":warning:"
+            STATUS_TEXT="API tests did not run properly"
             COLOR="#daa038"
           else
-            STATUS_LINE=":rotating_light: *PROD Health Check — ${FAILED} test(s) failed*"
+            STATUS_EMOJI=":rotating_light:"
+            STATUS_TEXT="PROD Health Check — ${FAILED} test(s) failed"
             COLOR="#cc3232"
           fi
 
+          # unfurl_links/unfurl_media false stops the "preview not available" box
           PAYLOAD=$(jq -n \
             --arg color   "$COLOR" \
-            --arg status  "$STATUS_LINE" \
+            --arg emoji   "$STATUS_EMOJI" \
+            --arg status  "$STATUS_TEXT" \
             --arg total   "$TOTAL" \
             --arg passed  "$PASSED" \
             --arg failed  "$FAILED" \
@@ -199,12 +202,17 @@ jobs:
             --arg ts      "$TIMESTAMP" \
             --arg url     "$REPORT_URL" \
             '{
+              unfurl_links: false,
+              unfurl_media: false,
               attachments: [{
                 color: $color,
                 blocks: [
                   {
                     type: "section",
-                    text: { type: "mrkdwn", text: $status }
+                    text: {
+                      type: "mrkdwn",
+                      text: "\($emoji)  *\($status)*"
+                    }
                   },
                   {
                     type: "section",
