@@ -139,48 +139,52 @@ jobs:
       - name: 📁 Persist Trend History (STRICT LAST 5 RUNS FIX)
         if: always()
         run: |
+            set -e
+        
             if [ ! -d "allure-results/history" ]; then
-              echo "No history to persist"; exit 0
+              echo "No history to persist"
+              exit 0
             fi
-  
+        
             git config user.name  "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-  
+        
             git fetch origin gh-pages
             git worktree add /tmp/gh-pages-wt origin/gh-pages
-  
+        
             mkdir -p /tmp/gh-pages-wt/history
-  
-            # copy fresh history
-            cp -r allure-results/history/* /tmp/gh-pages-wt/history/ 2>/dev/null || true
-  
-            cd /tmp/gh-pages-wt/history
-  
-            echo "🔧 Trimming Allure trend JSON to last 5 runs..."
-  
+        
+            echo "🔧 Enforcing strict last 5 runs per file..."
+        
             for file in history-trend.json categories-trend.json duration-trend.json retry-trend.json; do
-              if [ -f "$file" ]; then
+        
+              SRC="allure-results/history/$file"
+              DEST="/tmp/gh-pages-wt/history/$file"
+        
+              if [ -f "$SRC" ]; then
+        
                 echo "Processing $file"
-  
-                # detect array and trim last 5 entries
-                jq 'if type=="array" then .[-5:] else . end' "$file" > tmp.json && mv tmp.json "$file"
+        
+                # ONLY keep last 5 entries
+                jq 'if type=="array" then .[-5:] else . end' "$SRC" > "$DEST"
+        
               fi
             done
-  
-            echo "📊 Final trend state:"
-            ls -la
-  
+        
+            echo "📊 Final history files:"
+            ls -la /tmp/gh-pages-wt/history
+        
             cd /tmp/gh-pages-wt
             git add history/
-  
+        
             if git diff --cached --quiet; then
               echo "No history changes"
             else
               git commit -m "chore: enforce strict last 5 Allure trend runs [skip ci]"
               git push origin HEAD:gh-pages
-              echo "✅ Trend fixed (true last 5 runs)"
+              echo "✅ Fixed: strictly last 5 runs only"
             fi
-  
+        
             cd $GITHUB_WORKSPACE
             git worktree remove /tmp/gh-pages-wt --force
 
