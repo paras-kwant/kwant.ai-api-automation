@@ -136,9 +136,9 @@ jobs:
           user_email: 'github-actions[bot]@users.noreply.github.com'
           commit_message: 'deploy: allure report [${{ steps.newman.outputs.timestamp }}]'
 
-      - name: 📁 Persist Trend History on gh-pages (KEEP LAST 5)
+      - name: 📁 Persist Trend History on gh-pages (STRICT LAST 5)
         if: always()
-        run: |
+          run: |
             if [ ! -d "allure-report/history" ]; then
               echo "No history to persist"; exit 0
             fi
@@ -154,10 +154,19 @@ jobs:
   
             cd /tmp/gh-pages-wt/history
   
-            # ✅ KEEP ONLY LATEST 5 FILES (by modification time)
-            ls -1t | tail -n +6 | xargs -r rm -rf
+            # ✅ STRICT: keep only last 5 most recent files
+            # (sort by modification time, keep newest 5)
+            FILES=$(ls -1t)
   
-            echo "📊 Remaining history files:"
+            COUNT=0
+            echo "$FILES" | while read file; do
+              COUNT=$((COUNT+1))
+              if [ $COUNT -gt 5 ]; then
+                rm -rf "$file"
+              fi
+            done
+  
+            echo "📊 Final history (should be 5 max):"
             ls -1
   
             cd /tmp/gh-pages-wt
@@ -166,9 +175,9 @@ jobs:
             if git diff --cached --quiet; then
               echo "No history changes"
             else
-              git commit -m "chore: keep only latest 5 trend history [skip ci]"
+              git commit -m "chore: enforce strict last 5 trend history [skip ci]"
               git push origin HEAD:gh-pages
-              echo "✅ History trimmed and pushed"
+              echo "✅ Strict 5-history enforced"
             fi
   
             cd $GITHUB_WORKSPACE
