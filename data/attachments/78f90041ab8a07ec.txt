@@ -1,0 +1,1 @@
+{"timestamp":"2026-05-17T06:50:46.533+0000","status":500,"error":"Internal Server Error","exception":"com.ontarget.web.rest.openApi_v2.exception.APIException","message":"Duplicate employeeIds: []","path":"/api/open/v2/workers"}

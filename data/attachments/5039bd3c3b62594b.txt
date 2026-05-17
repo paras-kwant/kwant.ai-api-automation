@@ -1,0 +1,16 @@
+{
+  "employeeId": "45-637-992-7821",
+  "projectId": 94049707,
+  "firstName": "autmation_test",
+  "lastName": "Test",
+  "phone": "9849125901",
+  "email": "test@kwant.ai",
+  "sex": "female",
+  "flag": true,
+  "crewName": "LAYOUT",
+  "raceName": "Others",
+  "status": "ACTIVE",
+  "isActive": true,
+  "companyName": "Kwant",
+  "title": "Commissioning"
+}

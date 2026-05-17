@@ -1,0 +1,9 @@
+[
+    {
+        "integrationId": 41,
+        "recordId": 234,
+        "rfid": "0000002727876356",
+        "reader": "reader xyz",
+        "dateTime": "2026-01-20T17:58:30.123Z"
+    }
+]

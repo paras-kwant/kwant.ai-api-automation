@@ -1,0 +1,38 @@
+[
+  {
+    "employeeId": "295-561-0647",
+    "projectId": "94049707",
+    "firstName": "automation_test",
+    "lastName": "Test",
+    "phone": 9849125901,
+    "email": "test@kwant.ai",
+    "sex": "female",
+    "flag": true,
+    "crewName": "LAYOUT",
+    "raceName": "Others",
+    "status": "ACTIVE",
+    "isActive": true,
+    "companyName": "Kwant",
+    "title": "Commissioning",
+    "jobDescription": "Installer",
+    "rfid": ""
+  },
+  {
+    "employeeId": "302-217-3690",
+    "projectId": "94049707",
+    "firstName": "autmation_test2",
+    "lastName": "Test",
+    "phone": "9849125901",
+    "email": "test@kwant.ai",
+    "sex": "female",
+    "flag": true,
+    "crewName": "LAYOUT",
+    "raceName": "Others",
+    "status": "ACTIVE",
+    "isActive": true,
+    "companyName": "Kwant",
+    "title": "Commissioning",
+    "jobDescription": "Installer",
+    "rfid": ""
+  }
+]

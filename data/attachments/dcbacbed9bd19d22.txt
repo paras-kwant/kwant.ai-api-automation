@@ -1,0 +1,1 @@
+{"id":88980,"name":"automation_test2 Test","beaconId":null,"beaconSerialNumber":null,"beaconRFID":null,"employeeId":"698-498-1508","jobTitle":"Commissioning","companyId":1406,"costCode":null,"isActive":true,"extendedAttributes":{"Company Name":"Kwant"},"authorized":true}

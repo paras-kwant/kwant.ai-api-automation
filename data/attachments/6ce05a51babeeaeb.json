@@ -1,0 +1,12 @@
+{
+    "Content-Type": "application/json",
+    "api-key": "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOiIyNTA3MTU5MTUiLCJwcm9qZWN0SWQiOiI5NDA0OTcwNyJ9.WQv7aN3xJcGhf9ltC9VIb-4DJgymVCmFN-RRUk49Z9A",
+    "User-Agent": "PostmanRuntime/7.39.1",
+    "Accept": "*/*",
+    "Cache-Control": "no-cache",
+    "Postman-Token": "b1d8b481-5744-4567-83a5-06778180785a",
+    "Host": "uat.kwant.ai",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Content-Length": "350"
+}

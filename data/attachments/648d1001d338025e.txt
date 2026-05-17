@@ -1,0 +1,5 @@
+level: log, messages: === Random Company Selected ===
+level: log, messages: Total companies:,10
+level: log, messages: Random index:,6
+level: log, messages: Company ID:,1410
+level: log, messages: Company Name:,Soapy
