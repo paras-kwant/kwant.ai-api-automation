@@ -1,1 +1,27 @@
-[{"data":{"duration":11674}},{"data":{"duration":15199}},{"data":{"duration":12964}},{"data":{"duration":12134}},{"data":{"duration":11958}},{"data":{"duration":12290}}]
+[
+  {
+    "data": {
+      "duration": 15199
+    }
+  },
+  {
+    "data": {
+      "duration": 12964
+    }
+  },
+  {
+    "data": {
+      "duration": 12134
+    }
+  },
+  {
+    "data": {
+      "duration": 11958
+    }
+  },
+  {
+    "data": {
+      "duration": 12290
+    }
+  }
+]
